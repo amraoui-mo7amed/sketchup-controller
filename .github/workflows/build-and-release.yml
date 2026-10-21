@@ -33,14 +33,8 @@ jobs:
             --windowed \
             --noconfirm \
             --icon "desktop-app/assets/icon.icns" \
-            --add-data "desktop-app/main.qml:." \
-            --add-data "desktop-app/main.qml:desktop-app" \
             --add-data "desktop-app/assets:assets" \
             --add-data "desktop-app/assets:desktop-app/assets" \
-            --hidden-import "PySide6.QtQuick" \
-            --hidden-import "PySide6.QtQml" \
-            --hidden-import "PySide6.QtQuickControls2" \
-            --hidden-import "PySide6.QtNetwork" \
             --hidden-import "httpx" \
             desktop-app/main.py
 
@@ -81,16 +75,9 @@ jobs:
             --windowed `
             --noconfirm `
             --icon "desktop-app/assets/icon.ico" `
-            --add-data "desktop-app/main.qml;." `
-            --add-data "desktop-app/main.qml;desktop-app" `
             --add-data "desktop-app/assets;assets" `
             --add-data "desktop-app/assets;desktop-app/assets" `
-            --hidden-import "PySide6.QtQuick" `
-            --hidden-import "PySide6.QtQml" `
-            --hidden-import "PySide6.QtQuickControls2" `
-            --hidden-import "PySide6.QtNetwork" `
             --hidden-import "httpx" `
-            --collect-all "PySide6" `
             desktop-app/main.py
 
       - name: Copy Windows Executable for Release
