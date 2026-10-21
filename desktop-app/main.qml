@@ -1,23 +1,26 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "shapes_library.js" as ShapeLib
 
 ApplicationWindow {
     id: root
     visible: true
-    width: 1080
-    height: 720
-    minimumWidth: 960
-    minimumHeight: 640
+    width: 1240
+    height: 780
+    minimumWidth: 1040
+    minimumHeight: 660
     title: "Liquid CAD Studio — SketchUp 2026 Controller"
-    color: "#05070B"
+    color: "#07090E"
 
-    // --- Color Palette: Spatial Liquid Glass ---
-    readonly property color colBg: "#05070B"
-    readonly property color colGlassBase: Qt.rgba(0.06, 0.09, 0.16, 0.72)
-    readonly property color colGlassCard: Qt.rgba(0.09, 0.13, 0.22, 0.65)
-    readonly property color colBorderLight: Qt.rgba(1.0, 1.0, 1.0, 0.12)
-    readonly property color colBorderActive: Qt.rgba(0.0, 0.95, 1.0, 0.50)
+    // --- Modern Spatial Color Palette ---
+    readonly property color colBgDark: "#07090E"
+    readonly property color colGlassSurface: Qt.rgba(0.06, 0.09, 0.16, 0.65)
+    readonly property color colGlassElevated: Qt.rgba(0.09, 0.13, 0.22, 0.85)
+    readonly property color colGlassCard: Qt.rgba(0.07, 0.11, 0.19, 0.55)
+    readonly property color colBorderSubtle: Qt.rgba(1.0, 1.0, 1.0, 0.08)
+    readonly property color colBorderLight: Qt.rgba(1.0, 1.0, 1.0, 0.15)
+    readonly property color colBorderActive: "#00F5FF"
     readonly property color colCyan: "#00F5FF"
     readonly property color colViolet: "#8B5CF6"
     readonly property color colEmerald: "#10B981"
@@ -25,9 +28,55 @@ ApplicationWindow {
     readonly property color colRose: "#EC4899"
     readonly property color colTextPrimary: "#F8FAFC"
     readonly property color colTextSecondary: "#94A3B8"
+    readonly property color colTextMuted: "#64748B"
 
-    property int activeNav: 0
+    property int activeNav: 0 // 0: Shapes, 1: Solids, 2: Camera, 3: Stats
     property bool infoDrawerOpen: false
+    property bool exportModalOpen: false
+
+    // Shape Library & Inspector Drawer State
+    property string activeCategory: "all"
+    property string searchQuery: ""
+    property var selectedShape: null
+    property var currentParamValues: ({})
+    property bool shapeDrawerOpen: false
+    property bool shapeDrawerFullWidth: false
+
+    function selectShape(shape) {
+        if (!shape) return
+        selectedShape = shape
+        var vals = {}
+        if (shape.params) {
+            for (var i = 0; i < shape.params.length; i++) {
+                var p = shape.params[i]
+                vals[p.key] = p.val
+            }
+        }
+        currentParamValues = vals
+        shapeDrawerOpen = true
+    }
+
+    function selectShapeById(shapeId) {
+        selectShape(ShapeLib.getShapeById(shapeId))
+    }
+
+    function updateShapeParam(key, value) {
+        var copy = {}
+        for (var k in currentParamValues) {
+            copy[k] = currentParamValues[k]
+        }
+        copy[key] = value
+        currentParamValues = copy
+    }
+
+    function buildSelectedShape() {
+        if (!selectedShape) return
+        backend.createParametricShape(selectedShape.id, JSON.stringify(currentParamValues))
+    }
+
+    function closeDrawer() {
+        shapeDrawerOpen = false
+    }
 
     // Toast state
     property string toastText: ""
@@ -92,7 +141,11 @@ ApplicationWindow {
         readonly property string polygon: "\uf5ee"
         readonly property string trash: "\uf2ed"
         readonly property string plus: "\uf067"
+        readonly property string minus: "\uf068"
         readonly property string stairs: "\uf550"
+        readonly property string search: "\uf002"
+        readonly property string sliders: "\uf1de"
+        readonly property string shapes: "\uf5aa"
     }
 
     component FAIcon: Text {
@@ -104,1419 +157,1380 @@ ApplicationWindow {
     }
 
     // =========================================================================
-    // BACKGROUND: AMBIENT LIQUID ORBS (Fluid, luminous refraction field)
+    // AMBIENT GRADIENT FIELD (Minimalist, Spatial)
     // =========================================================================
     Item {
         anchors.fill: parent
         z: 0
 
         Rectangle {
-            width: 580; height: 580; radius: 290
-            x: -120; y: -120
-            opacity: 0.22
+            width: 700; height: 700; radius: 350
+            x: -200; y: -200
+            opacity: 0.14
             gradient: Gradient {
                 GradientStop { position: 0.0; color: colCyan }
-                GradientStop { position: 0.7; color: Qt.rgba(0, 0.8, 1, 0.05) }
+                GradientStop { position: 0.6; color: Qt.rgba(0, 0.8, 1, 0.03) }
                 GradientStop { position: 1.0; color: "transparent" }
-            }
-            SequentialAnimation on y {
-                loops: Animation.Infinite
-                NumberAnimation { to: -80; duration: 7000; easing.type: Easing.InOutSine }
-                NumberAnimation { to: -120; duration: 7000; easing.type: Easing.InOutSine }
             }
         }
 
         Rectangle {
-            width: 620; height: 620; radius: 310
-            x: root.width - 450; y: root.height - 450
-            opacity: 0.18
+            width: 600; height: 600; radius: 300
+            x: root.width - 400; y: root.height - 350
+            opacity: 0.12
             gradient: Gradient {
                 GradientStop { position: 0.0; color: colViolet }
-                GradientStop { position: 0.65; color: Qt.rgba(0.6, 0.2, 0.9, 0.06) }
+                GradientStop { position: 0.6; color: Qt.rgba(0.5, 0.2, 0.9, 0.03) }
                 GradientStop { position: 1.0; color: "transparent" }
-            }
-            SequentialAnimation on x {
-                loops: Animation.Infinite
-                NumberAnimation { to: root.width - 400; duration: 8000; easing.type: Easing.InOutSine }
-                NumberAnimation { to: root.width - 450; duration: 8000; easing.type: Easing.InOutSine }
             }
         }
     }
 
     // =========================================================================
-    // MAIN APP LAYOUT (Vertical Left Dock + Spacious Main Stage)
+    // MAIN APP LAYOUT (Unified Header + Content Area + Right Settings Drawer)
     // =========================================================================
-    RowLayout {
+    ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 18
-        spacing: 16
+        spacing: 0
         z: 1
 
         // ---------------------------------------------------------------------
-        // LEFT FLOATING CAPSULE DOCK
+        // 1. TOP UNIFIED APP BAR (Clean, Compact, Focused)
         // ---------------------------------------------------------------------
         Rectangle {
-            Layout.preferredWidth: 76
-            Layout.fillHeight: true
-            radius: 24
-            color: colGlassBase
+            Layout.fillWidth: true
+            height: 54
+            color: Qt.rgba(0.04, 0.06, 0.11, 0.92)
             border.width: 1
-            border.color: colBorderLight
+            border.color: colBorderSubtle
 
-            ColumnLayout {
+            RowLayout {
                 anchors.fill: parent
-                anchors.topMargin: 20
-                anchors.bottomMargin: 20
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
                 spacing: 12
 
                 // Brand Emblem
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    width: 44
-                    height: 44
-                    radius: 14
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: colCyan }
-                        GradientStop { position: 1.0; color: colViolet }
+                RowLayout {
+                    spacing: 8
+                    Rectangle {
+                        width: 32; height: 32; radius: 9
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: colCyan }
+                            GradientStop { position: 1.0; color: colViolet }
+                        }
+                        FAIcon {
+                            anchors.centerIn: parent
+                            text: fa.cube
+                            font.pixelSize: 15
+                            color: "#05070B"
+                        }
                     }
+
+                    ColumnLayout {
+                        spacing: 0
+                        Text {
+                            text: "LIQUID CAD"
+                            font.pixelSize: 12
+                            font.bold: true
+                            font.letterSpacing: 1.2
+                            color: "#FFFFFF"
+                        }
+                        Text {
+                            text: "SketchUp 2026 Bridge"
+                            font.pixelSize: 9
+                            color: colTextMuted
+                        }
+                    }
+                }
+
+                Rectangle { width: 1; height: 24; color: colBorderSubtle }
+
+                // Studio Navigation Segmented Bar: [ Shapes | Solids | Camera | Stats ]
+                Rectangle {
+                    height: 36
+                    implicitWidth: navSegmentsRow.implicitWidth + 8
+                    radius: 18
+                    color: Qt.rgba(1, 1, 1, 0.04)
+                    border.width: 1
+                    border.color: colBorderSubtle
+
+                    RowLayout {
+                        id: navSegmentsRow
+                        anchors.centerIn: parent
+                        spacing: 2
+
+                        Repeater {
+                            model: [
+                                { id: 0, label: "Shapes", icon: fa.cubes },
+                                { id: 1, label: "Solids", icon: fa.cube },
+                                { id: 2, label: "Camera", icon: fa.camera },
+                                { id: 3, label: "Stats", icon: fa.chart }
+                            ]
+
+                            Rectangle {
+                                property bool isCur: activeNav === modelData.id
+                                height: 30
+                                implicitWidth: segContent.implicitWidth + 18
+                                radius: 15
+                                color: isCur ? Qt.rgba(0, 0.95, 1, 0.18) : (segM.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
+                                border.width: isCur ? 1 : 0
+                                border.color: colCyan
+
+                                Behavior on color { ColorAnimation { duration: 120 } }
+
+                                RowLayout {
+                                    id: segContent
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    FAIcon {
+                                        text: modelData.icon
+                                        font.pixelSize: 11
+                                        color: parent.parent.isCur ? colCyan : (segM.containsMouse ? colTextPrimary : colTextSecondary)
+                                    }
+                                    Text {
+                                        text: modelData.label
+                                        font.pixelSize: 10
+                                        font.bold: parent.parent.isCur
+                                        color: parent.parent.isCur ? "#FFFFFF" : colTextSecondary
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: segM
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: activeNav = modelData.id
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                // Search Bar (Shown in Top Bar for Shapes)
+                Rectangle {
+                    visible: activeNav === 0
+                    height: 32
+                    implicitWidth: 240
+                    radius: 16
+                    color: Qt.rgba(0, 0, 0, 0.40)
+                    border.width: 1
+                    border.color: topSearchIn.activeFocus ? colCyan : colBorderSubtle
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 8
+                        spacing: 6
+
+                        FAIcon { text: fa.search; font.pixelSize: 10; color: topSearchIn.activeFocus ? colCyan : colTextMuted }
+
+                        TextInput {
+                            id: topSearchIn
+                            Layout.fillWidth: true
+                            color: colTextPrimary
+                            font.pixelSize: 11
+                            verticalAlignment: TextInput.AlignVCenter
+                            clip: true
+
+                            Text {
+                                text: "Search shapes..."
+                                color: Qt.rgba(1, 1, 1, 0.35)
+                                font.pixelSize: 10
+                                visible: !topSearchIn.text && !topSearchIn.activeFocus
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            onTextChanged: root.searchQuery = text
+                        }
+
+                        Rectangle {
+                            visible: topSearchIn.text.length > 0
+                            width: 16; height: 16; radius: 8
+                            color: Qt.rgba(1, 1, 1, 0.15)
+                            FAIcon { anchors.centerIn: parent; text: fa.xmark; font.pixelSize: 8; color: colTextPrimary }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: topSearchIn.text = ""
+                            }
+                        }
+                    }
+                }
+
+                // Separated Icon-Only Export Button (Prompt: "the export must be a separated icon-only button that shows a modal")
+                Rectangle {
+                    width: 32; height: 32; radius: 16
+                    color: expBtnM.containsMouse ? Qt.rgba(139, 92, 246, 0.25) : Qt.rgba(1, 1, 1, 0.05)
+                    border.width: 1
+                    border.color: expBtnM.containsMouse ? colViolet : colBorderSubtle
+
                     FAIcon {
                         anchors.centerIn: parent
-                        text: fa.cube
-                        font.pixelSize: 20
-                        color: "#05070B"
+                        text: fa.fileExport
+                        font.pixelSize: 12
+                        color: expBtnM.containsMouse ? colViolet : colTextSecondary
+                    }
+
+                    MouseArea {
+                        id: expBtnM
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.exportModalOpen = true
                     }
                 }
 
+                // 1-Click Auto Setup Button
                 Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    width: 36
-                    height: 1
-                    color: Qt.rgba(1, 1, 1, 0.1)
-                }
-
-                // Nav Items
-                Repeater {
-                    model: [
-                        { icon: fa.house, label: "Rooms", id: 0 },
-                        { icon: fa.stairs, label: "Stairs", id: 1 },
-                        { icon: fa.cubes, label: "Solids", id: 2 },
-                        { icon: fa.camera, label: "Camera", id: 3 },
-                        { icon: fa.fileExport, label: "Export", id: 4 },
-                        { icon: fa.chart, label: "Stats", id: 5 },
-                        { icon: fa.terminal, label: "Ruby", id: 6 }
-                    ]
-
-                    Rectangle {
-                        id: navBtn
-                        Layout.alignment: Qt.AlignHCenter
-                        width: 52
-                        height: 52
-                        radius: 16
-                        color: activeNav === modelData.id ? Qt.rgba(0, 0.95, 1, 0.18) : (navMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
-                        border.width: activeNav === modelData.id ? 1 : 0
-                        border.color: colBorderActive
-
-                        Behavior on color { ColorAnimation { duration: 150 } }
-
-                        ColumnLayout {
-                            anchors.centerIn: parent
-                            spacing: 3
-                            FAIcon {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: modelData.icon
-                                font.pixelSize: 16
-                                color: activeNav === modelData.id ? colCyan : (navMouse.containsMouse ? colTextPrimary : colTextSecondary)
-                            }
-                            Text {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: modelData.label
-                                font.pixelSize: 9
-                                font.bold: activeNav === modelData.id
-                                color: activeNav === modelData.id ? colCyan : colTextSecondary
-                            }
-                        }
-
-                        MouseArea {
-                            id: navMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: activeNav = modelData.id
-                        }
-                    }
-                }
-
-                Item { Layout.fillHeight: true }
-
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    width: 36
-                    height: 1
-                    color: Qt.rgba(1, 1, 1, 0.1)
-                }
-
-                // Info & Credits Button (Icon-Only)
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    width: 44
-                    height: 44
-                    radius: 14
-                    color: infoMouse.containsMouse ? Qt.rgba(0, 0.95, 1, 0.22) : Qt.rgba(1, 1, 1, 0.06)
+                    height: 32
+                    implicitWidth: autoSetupRow.implicitWidth + 20
+                    radius: 16
+                    color: autoSetupM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.25) : Qt.rgba(0, 0.95, 1, 0.10)
                     border.width: 1
-                    border.color: infoMouse.containsMouse ? colCyan : colBorderLight
+                    border.color: autoSetupM.containsMouse ? colCyan : Qt.rgba(0, 0.95, 1, 0.35)
+
+                    RowLayout {
+                        id: autoSetupRow
+                        anchors.centerIn: parent
+                        spacing: 6
+                        FAIcon { text: fa.bolt; font.pixelSize: 11; color: colCyan }
+                        Text {
+                            text: "Auto Setup"
+                            font.pixelSize: 10
+                            font.bold: true
+                            color: "#FFFFFF"
+                        }
+                    }
+
+                    MouseArea {
+                        id: autoSetupM
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: backend.autoSetupPlugin()
+                    }
+                }
+
+                // Bridge Status Pill
+                Rectangle {
+                    property bool isConn: backend ? backend.connected : false
+                    height: 32
+                    implicitWidth: statusPillRow.implicitWidth + 22
+                    radius: 16
+                    color: isConn ? Qt.rgba(0.06, 0.72, 0.50, 0.12) : Qt.rgba(0.96, 0.62, 0.04, 0.12)
+                    border.width: 1
+                    border.color: isConn ? Qt.rgba(0.06, 0.72, 0.50, 0.35) : Qt.rgba(0.96, 0.62, 0.04, 0.35)
+
+                    RowLayout {
+                        id: statusPillRow
+                        anchors.centerIn: parent
+                        spacing: 6
+
+                        Rectangle {
+                            width: 7; height: 7; radius: 3.5
+                            color: parent.parent.isConn ? colEmerald : colAmber
+                            SequentialAnimation on opacity {
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.3; duration: 800 }
+                                NumberAnimation { to: 1.0; duration: 800 }
+                            }
+                        }
+
+                        Text {
+                            text: parent.parent.isConn ? "Bridge Online" : "Bridge Offline"
+                            font.pixelSize: 10
+                            font.bold: true
+                            color: parent.parent.isConn ? colEmerald : colAmber
+                        }
+                    }
+                }
+
+                // Info / Credits Drawer Toggle Button
+                Rectangle {
+                    width: 32; height: 32; radius: 16
+                    color: infoM.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.05)
+                    border.width: 1
+                    border.color: colBorderSubtle
 
                     FAIcon {
                         anchors.centerIn: parent
                         text: fa.info
-                        font.pixelSize: 16
-                        color: infoMouse.containsMouse ? colCyan : colTextPrimary
+                        font.pixelSize: 12
+                        color: infoM.containsMouse ? colCyan : colTextSecondary
                     }
                     MouseArea {
-                        id: infoMouse
+                        id: infoM
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: infoDrawerOpen = true
                     }
                 }
+            }
+        }
 
-                // Ping / Refresh Button
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    width: 44
-                    height: 44
-                    radius: 14
-                    color: refMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.06)
-                    border.width: 1
-                    border.color: colBorderLight
+        // ---------------------------------------------------------------------
+        // 2. SUB-BAR: CATEGORIES & QUICK RIBBON (Only in Shapes View)
+        // ---------------------------------------------------------------------
+        Rectangle {
+            visible: activeNav === 0
+            Layout.fillWidth: true
+            height: 42
+            color: Qt.rgba(0.05, 0.07, 0.13, 0.75)
+            border.width: 1
+            border.color: colBorderSubtle
 
-                    FAIcon {
-                        anchors.centerIn: parent
-                        text: fa.sync
-                        font.pixelSize: 15
-                        color: colTextPrimary
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                spacing: 10
+
+                // Category Switcher Pills
+                Flickable {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentWidth: catRow.implicitWidth
+                    contentHeight: height
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    RowLayout {
+                        id: catRow
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 6
+
+                        Repeater {
+                            model: ShapeLib.categories
+
+                            Rectangle {
+                                property bool isSel: root.activeCategory === modelData.id
+                                height: 26
+                                implicitWidth: catTxtRow.implicitWidth + 16
+                                radius: 13
+                                color: isSel ? Qt.rgba(0, 0.95, 1, 0.22) : (catMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                                border.width: isSel ? 1 : 0
+                                border.color: colCyan
+
+                                RowLayout {
+                                    id: catTxtRow
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    FAIcon {
+                                        text: modelData.icon
+                                        font.pixelSize: 10
+                                        color: parent.parent.isSel ? colCyan : colTextSecondary
+                                    }
+                                    Text {
+                                        text: modelData.name
+                                        font.pixelSize: 10
+                                        font.bold: parent.parent.isSel
+                                        color: parent.parent.isSel ? "#FFFFFF" : colTextSecondary
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: catMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.activeCategory = modelData.id
+                                }
+                            }
+                        }
                     }
+                }
+
+                Rectangle { width: 1; height: 18; color: colBorderSubtle }
+
+                Text {
+                    text: shapesRepeater.count + " shapes"
+                    font.pixelSize: 10
+                    color: colTextMuted
+                }
+
+                // Drawer Toggle Indicator
+                Rectangle {
+                    visible: root.selectedShape !== null
+                    height: 24
+                    implicitWidth: drwToggleRow.implicitWidth + 14
+                    radius: 12
+                    color: drwToggleM.containsMouse ? Qt.rgba(139, 92, 246, 0.25) : Qt.rgba(139, 92, 246, 0.12)
+                    border.width: 1
+                    border.color: colViolet
+
+                    RowLayout {
+                        id: drwToggleRow
+                        anchors.centerIn: parent
+                        spacing: 5
+                        FAIcon { text: fa.sliders; font.pixelSize: 9; color: colViolet }
+                        Text {
+                            text: root.shapeDrawerOpen ? "Hide Inspector" : "Show Inspector"
+                            font.pixelSize: 9
+                            font.bold: true
+                            color: "#FFFFFF"
+                        }
+                    }
+
                     MouseArea {
-                        id: refMouse
+                        id: drwToggleM
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: backend.refresh()
+                        onClicked: root.shapeDrawerOpen = !root.shapeDrawerOpen
                     }
                 }
             }
         }
 
         // ---------------------------------------------------------------------
-        // MAIN WORKSPACE CANVAS
+        // 3. WORKSPACE STAGE WITH INTEGRATED RIGHT INSPECTOR DRAWER
         // ---------------------------------------------------------------------
-        Rectangle {
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 24
-            color: colGlassBase
-            border.width: 1
-            border.color: colBorderLight
+            spacing: 0
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 24
-                spacing: 20
+            // -----------------------------------------------------------------
+            // MAIN CONTENT STAGE (StackLayout for remaining Studios)
+            // -----------------------------------------------------------------
+            Item {
+                Layout.fillWidth: !root.shapeDrawerFullWidth
+                Layout.fillHeight: true
+                visible: !root.shapeDrawerFullWidth
+                clip: true
 
-                // Top Status Bar (Breadcrumbs + Live SketchUp Telemetry Pill)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 14
+                StackLayout {
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    currentIndex: activeNav
 
-                    ColumnLayout {
-                        spacing: 2
-                        Text {
-                            text: {
-                                switch (activeNav) {
-                                case 0: return "PARAMETRIC ARCHITECTURE"
-                                case 1: return "PARAMETRIC STAIR STUDIO"
-                                case 2: return "3D SOLIDS & MASSING"
-                                case 3: return "VIEWPORT CAMERA RIG"
-                                case 4: return "EXPORT STUDIO PIPELINE"
-                                case 5: return "MODEL TELEMETRY"
-                                case 6: return "RUBY SCRIPT TERMINAL"
-                                default: return "STUDIO"
+                    // =========================================================
+                    // VIEW 0: SHAPES CATALOG GRID
+                    // =========================================================
+                    ScrollView {
+                        clip: true
+
+                        Flickable {
+                            contentWidth: width
+                            contentHeight: shapesFlow.implicitHeight + 20
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            Flow {
+                                id: shapesFlow
+                                width: parent.width
+                                spacing: 12
+
+                                Repeater {
+                                    id: shapesRepeater
+                                    model: ShapeLib.getShapesByCategory(root.activeCategory, root.searchQuery)
+
+                                    Rectangle {
+                                        property bool isAct: root.selectedShape && root.selectedShape.id === modelData.id
+                                        width: Math.max(180, Math.floor((shapesFlow.width - (3 * 12)) / (root.shapeDrawerOpen ? 3 : 4)))
+                                        height: 120
+                                        radius: 14
+                                        color: isAct ? Qt.rgba(0, 0.95, 1, 0.12) : (cardMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : colGlassCard)
+                                        border.width: isAct ? 1.5 : 1
+                                        border.color: isAct ? colCyan : (cardMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.25) : colBorderSubtle)
+                                        clip: true
+
+                                        Behavior on border.color { ColorAnimation { duration: 120 } }
+                                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 12
+                                            spacing: 6
+
+                                            // Card Top Row: Squircle Icon + Category Pill
+                                            RowLayout {
+                                                Layout.fillWidth: true
+
+                                                Rectangle {
+                                                    width: 32; height: 32; radius: 9
+                                                    gradient: Gradient {
+                                                        GradientStop { position: 0.0; color: isAct ? colCyan : (cardMouse.containsMouse ? colCyan : Qt.rgba(0, 0.95, 1, 0.25)) }
+                                                        GradientStop { position: 1.0; color: isAct ? colViolet : (cardMouse.containsMouse ? colViolet : Qt.rgba(139, 92, 246, 0.25)) }
+                                                    }
+                                                    FAIcon {
+                                                        anchors.centerIn: parent
+                                                        text: modelData.icon
+                                                        font.pixelSize: 14
+                                                        color: (isAct || cardMouse.containsMouse) ? "#05070B" : colCyan
+                                                    }
+                                                }
+
+                                                Item { Layout.fillWidth: true }
+
+                                                Rectangle {
+                                                    height: 16
+                                                    implicitWidth: cTagTxt.implicitWidth + 10
+                                                    radius: 8
+                                                    color: Qt.rgba(1, 1, 1, 0.05)
+                                                    Text {
+                                                        id: cTagTxt
+                                                        anchors.centerIn: parent
+                                                        text: modelData.category.toUpperCase()
+                                                        font.pixelSize: 8
+                                                        font.bold: true
+                                                        color: colTextMuted
+                                                    }
+                                                }
+                                            }
+
+                                            // Shape Name
+                                            Text {
+                                                text: modelData.name
+                                                font.pixelSize: 12
+                                                font.bold: true
+                                                color: isAct ? colCyan : "#FFFFFF"
+                                                elide: Text.ElideRight
+                                                Layout.fillWidth: true
+                                            }
+
+                                            // Shape Description
+                                            Text {
+                                                text: modelData.desc
+                                                font.pixelSize: 9
+                                                color: colTextSecondary
+                                                wrapMode: Text.Wrap
+                                                maximumLineCount: 2
+                                                elide: Text.ElideRight
+                                                Layout.fillWidth: true
+                                            }
+
+                                            Item { Layout.fillHeight: true }
+
+                                            // Bottom Micro-Bar: Parameter count & Configure cue
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                Text {
+                                                    text: (modelData.params ? modelData.params.length : 0) + " params"
+                                                    font.pixelSize: 9
+                                                    color: colTextMuted
+                                                }
+                                                Item { Layout.fillWidth: true }
+                                                Text {
+                                                    text: isAct ? "Editing in Drawer →" : "Configure →"
+                                                    font.pixelSize: 9
+                                                    font.bold: true
+                                                    color: isAct ? colCyan : (cardMouse.containsMouse ? colTextPrimary : "transparent")
+                                                }
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: cardMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.selectShape(modelData)
+                                        }
+                                    }
                                 }
                             }
-                            font.pixelSize: 16
-                            font.bold: true
-                            font.letterSpacing: 1.2
-                            color: colTextPrimary
-                        }
-                        Text {
-                            text: "Deterministic live controller for SketchUp 2026"
-                            font.pixelSize: 11
-                            color: colTextSecondary
                         }
                     }
 
-                    Item { Layout.fillWidth: true }
+                    // =========================================================
+                    // VIEW 1: SOLIDS MASSING
+                    // =========================================================
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        spacing: 16
 
-                    // 1-Click Auto Setup Button
+                        Rectangle {
+                            Layout.fillWidth: true; Layout.fillHeight: true; radius: 16; color: colGlassCard; border.width: 1; border.color: colBorderSubtle
+                            ColumnLayout {
+                                anchors.fill: parent; anchors.margins: 20; spacing: 12
+                                Text { text: "BOX MASSING"; font.pixelSize: 13; font.bold: true; color: colCyan }
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 2
+                                    RowLayout {
+                                        Text { text: "Width (X):"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: bxW.value.toFixed(1) + " m"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                    }
+                                    Slider { id: bxW; Layout.fillWidth: true; from: 0.5; to: 30.0; value: 4.0; stepSize: 0.5 }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 2
+                                    RowLayout {
+                                        Text { text: "Depth (Y):"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: bxD.value.toFixed(1) + " m"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                    }
+                                    Slider { id: bxD; Layout.fillWidth: true; from: 0.5; to: 30.0; value: 4.0; stepSize: 0.5 }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 2
+                                    RowLayout {
+                                        Text { text: "Height (Z):"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: bxH.value.toFixed(1) + " m"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                    }
+                                    Slider { id: bxH; Layout.fillWidth: true; from: 0.5; to: 30.0; value: 3.0; stepSize: 0.5 }
+                                }
+                                Item { Layout.fillHeight: true }
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 42; radius: 12
+                                    gradient: Gradient {
+                                        GradientStop { position: 0.0; color: colCyan }
+                                        GradientStop { position: 1.0; color: "#0066FF" }
+                                    }
+                                    RowLayout {
+                                        anchors.centerIn: parent; spacing: 8
+                                        FAIcon { text: fa.cube; font.pixelSize: 12; color: "#FFFFFF" }
+                                        Text { text: "CREATE BOX IN SKETCHUP"; font.pixelSize: 11; font.bold: true; color: "#FFFFFF" }
+                                    }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.createBox(bxW.value, bxD.value, bxH.value) }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true; Layout.fillHeight: true; radius: 16; color: colGlassCard; border.width: 1; border.color: colBorderSubtle
+                            ColumnLayout {
+                                anchors.fill: parent; anchors.margins: 20; spacing: 12
+                                Text { text: "CYLINDER MASSING"; font.pixelSize: 13; font.bold: true; color: colViolet }
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 2
+                                    RowLayout {
+                                        Text { text: "Radius:"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: cyR.value.toFixed(2) + " m"; font.pixelSize: 11; font.bold: true; color: colViolet }
+                                    }
+                                    Slider { id: cyR; Layout.fillWidth: true; from: 0.1; to: 10.0; value: 1.0; stepSize: 0.1 }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true; spacing: 2
+                                    RowLayout {
+                                        Text { text: "Height:"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: cyH.value.toFixed(1) + " m"; font.pixelSize: 11; font.bold: true; color: colViolet }
+                                    }
+                                    Slider { id: cyH; Layout.fillWidth: true; from: 0.5; to: 25.0; value: 3.5; stepSize: 0.5 }
+                                }
+                                Item { Layout.fillHeight: true }
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 42; radius: 12
+                                    gradient: Gradient {
+                                        GradientStop { position: 0.0; color: colViolet }
+                                        GradientStop { position: 1.0; color: "#4A00E0" }
+                                    }
+                                    RowLayout {
+                                        anchors.centerIn: parent; spacing: 8
+                                        FAIcon { text: fa.circle; font.pixelSize: 12; color: "#FFFFFF" }
+                                        Text { text: "CREATE CYLINDER IN SKETCHUP"; font.pixelSize: 11; font.bold: true; color: "#FFFFFF" }
+                                    }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.createCylinder(cyR.value, cyH.value, 24) }
+                                }
+                            }
+                        }
+                    }
+
+                    // =========================================================
+                    // VIEW 2: CAMERA VIEWPORT RIG
+                    // =========================================================
                     Rectangle {
-                        id: autoSetupBtn
-                        height: 38
-                        implicitWidth: autoSetupRow.implicitWidth + 24
-                        radius: 19
-                        color: autoSetupM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.28) : Qt.rgba(0, 0.95, 1, 0.12)
-                        border.width: 1
-                        border.color: autoSetupM.containsMouse ? colCyan : Qt.rgba(0, 0.95, 1, 0.40)
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 16; color: colGlassCard; border.width: 1; border.color: colBorderSubtle
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 24; spacing: 16
+                            Text { text: "VIEWPORT PRESETS"; font.pixelSize: 14; font.bold: true; color: colCyan }
+                            Flow {
+                                Layout.fillWidth: true; spacing: 14
+                                Repeater {
+                                    model: [
+                                        { view: "iso", name: "Isometric 3D", icon: fa.cubes },
+                                        { view: "top", name: "Top Plan", icon: fa.arrowUp },
+                                        { view: "front", name: "Front Elevation", icon: fa.arrowRight },
+                                        { view: "right", name: "Right Elevation", icon: fa.arrowRight }
+                                    ]
+                                    Rectangle {
+                                        width: 170; height: 80; radius: 12; color: Qt.rgba(1, 1, 1, 0.05); border.width: 1; border.color: colBorderSubtle
+                                        ColumnLayout {
+                                            anchors.centerIn: parent; spacing: 6
+                                            FAIcon { Layout.alignment: Qt.AlignHCenter; text: modelData.icon; font.pixelSize: 18; color: colCyan }
+                                            Text { Layout.alignment: Qt.AlignHCenter; text: modelData.name; font.pixelSize: 11; font.bold: true; color: "#FFFFFF" }
+                                        }
+                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.setCamera(modelData.view) }
+                                    }
+                                }
+                            }
+                            Item { Layout.fillHeight: true }
+                        }
+                    }
 
-                        Behavior on color { ColorAnimation { duration: 150 } }
+                    // =========================================================
+                    // VIEW 3: MODEL STATS & TELEMETRY
+                    // =========================================================
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 16; color: colGlassCard; border.width: 1; border.color: colBorderSubtle
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 24; spacing: 16
+                            Text { text: "MODEL TELEMETRY"; font.pixelSize: 14; font.bold: true; color: colEmerald }
+                            Flow {
+                                Layout.fillWidth: true; spacing: 12
+                                Repeater {
+                                    model: [
+                                        { label: "Active Model", val: backend ? backend.modelName : "", icon: fa.house },
+                                        { label: "Entities", val: backend ? backend.entitiesCount.toString() : "0", icon: fa.cubes },
+                                        { label: "Faces", val: backend ? backend.facesCount.toString() : "0", icon: fa.polygon },
+                                        { label: "Edges", val: backend ? backend.edgesCount.toString() : "0", icon: fa.ruler },
+                                        { label: "Dimensions", val: backend ? backend.dimensions : "0×0×0m", icon: fa.rulerVertical },
+                                        { label: "Units", val: backend ? backend.units : "Meters", icon: fa.ruler }
+                                    ]
+                                    Rectangle {
+                                        width: 180; height: 70; radius: 10; color: Qt.rgba(1, 1, 1, 0.04); border.width: 1; border.color: colBorderSubtle
+                                        ColumnLayout {
+                                            anchors.centerIn: parent; spacing: 4
+                                            Text { text: modelData.label; font.pixelSize: 10; color: colTextMuted }
+                                            Text { text: modelData.val; font.pixelSize: 13; font.bold: true; color: colTextPrimary }
+                                        }
+                                    }
+                                }
+                            }
+                            Item { Layout.fillHeight: true }
+                            Rectangle {
+                                Layout.fillWidth: true; height: 36; radius: 8; color: Qt.rgba(0.94, 0.27, 0.27, 0.15); border.width: 1; border.color: Qt.rgba(0.94, 0.27, 0.27, 0.4)
+                                RowLayout {
+                                    anchors.centerIn: parent; spacing: 6
+                                    FAIcon { text: fa.trash; font.pixelSize: 10; color: "#EF4444" }
+                                    Text { text: "Clear All Active Model Entities"; font.pixelSize: 10; font.bold: true; color: "#EF4444" }
+                                }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.clearModel() }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // -----------------------------------------------------------------
+            // RIGHT SETTINGS INSPECTOR DRAWER WITH LIVE PREVIEW CANVAS
+            // -----------------------------------------------------------------
+            Rectangle {
+                id: inspectorDrawer
+                Layout.preferredWidth: (root.shapeDrawerOpen && root.selectedShape !== null) ? (root.shapeDrawerFullWidth ? parent.width : 400) : 0
+                Layout.fillWidth: root.shapeDrawerFullWidth
+                Layout.fillHeight: true
+                visible: (root.shapeDrawerOpen && root.selectedShape !== null)
+                color: "#090D18"
+                border.width: 1
+                border.color: colBorderLight
+                clip: true
+
+                Behavior on Layout.preferredWidth {
+                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 18
+                    spacing: 12
+
+                    // Drawer Header
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        Rectangle {
+                            width: 38; height: 38; radius: 10
+                            gradient: Gradient {
+                                GradientStop { position: 0.0; color: colCyan }
+                                GradientStop { position: 1.0; color: colViolet }
+                            }
+                            FAIcon {
+                                anchors.centerIn: parent
+                                text: root.selectedShape ? root.selectedShape.icon : fa.cube
+                                font.pixelSize: 16
+                                color: "#05070B"
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            RowLayout {
+                                spacing: 6
+                                Text {
+                                    text: root.selectedShape ? root.selectedShape.name : "Parametric Shape"
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    color: "#FFFFFF"
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Rectangle {
+                                    height: 16
+                                    implicitWidth: dCatTag.implicitWidth + 8
+                                    radius: 8
+                                    color: Qt.rgba(0, 0.95, 1, 0.15)
+                                    border.width: 1
+                                    border.color: colCyan
+                                    Text {
+                                        id: dCatTag
+                                        anchors.centerIn: parent
+                                        text: root.selectedShape ? root.selectedShape.category.toUpperCase() : ""
+                                        font.pixelSize: 7
+                                        font.bold: true
+                                        color: colCyan
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: root.selectedShape ? root.selectedShape.desc : ""
+                                font.pixelSize: 9
+                                color: colTextSecondary
+                                wrapMode: Text.Wrap
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        // Full-Width / Side Panel Mode Toggle Button
+                        Rectangle {
+                            height: 26
+                            implicitWidth: fwTxt.implicitWidth + 18
+                            radius: 13
+                            color: root.shapeDrawerFullWidth ? Qt.rgba(0, 0.95, 1, 0.20) : (drwExpM.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05))
+                            border.width: 1
+                            border.color: root.shapeDrawerFullWidth ? colCyan : colBorderSubtle
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 5
+                                FAIcon {
+                                    text: root.shapeDrawerFullWidth ? fa.boxes : fa.sliders
+                                    font.pixelSize: 9
+                                    color: root.shapeDrawerFullWidth ? colCyan : colTextSecondary
+                                }
+                                Text {
+                                    id: fwTxt
+                                    text: root.shapeDrawerFullWidth ? "Side Panel" : "Full Width"
+                                    font.pixelSize: 9
+                                    font.bold: true
+                                    color: root.shapeDrawerFullWidth ? colCyan : colTextPrimary
+                                }
+                            }
+
+                            MouseArea {
+                                id: drwExpM
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.shapeDrawerFullWidth = !root.shapeDrawerFullWidth
+                            }
+                        }
+
+                        // Close Drawer Button
+                        Rectangle {
+                            width: 28; height: 28; radius: 14
+                            color: drwCloseM.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05)
+                            border.width: 1
+                            border.color: colBorderSubtle
+
+                            FAIcon { anchors.centerIn: parent; text: fa.xmark; font.pixelSize: 10; color: colTextPrimary }
+
+                            MouseArea {
+                                id: drwCloseM
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.closeDrawer()
+                            }
+                        }
+                    }
+
+                    // ---------------------------------------------------------
+                    // LIVE 2.5D GEOMETRIC PREVIEW CANVAS (Prompt: "what about showing the live preview")
+                    // ---------------------------------------------------------
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: root.shapeDrawerFullWidth ? 200 : 135
+                        radius: 12
+                        color: Qt.rgba(0, 0, 0, 0.50)
+                        border.width: 1
+                        border.color: colBorderSubtle
+                        clip: true
 
                         RowLayout {
-                            id: autoSetupRow
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: 8
+                            z: 2
+
+                            Text {
+                                text: "LIVE 2.5D PREVIEW"
+                                font.pixelSize: 8
+                                font.bold: true
+                                font.letterSpacing: 0.8
+                                color: colViolet
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: {
+                                    if (!root.selectedShape) return ""
+                                    var p = root.currentParamValues
+                                    var w = p["width"] || p["length"] || p["size"] || p["base_size"] || p["base_w"] || p["span"] || p["radius"] || 1.0
+                                    var d = p["depth"] || p["width"] || p["projection"] || p["top_w"] || 1.0
+                                    var h = p["height"] || p["rise"] || p["thickness"] || (p["steps"] ? p["steps"] * 0.18 : 1.0) || 1.0
+                                    return Number(w).toFixed(1) + " × " + Number(d).toFixed(1) + " × " + Number(h).toFixed(1) + "m"
+                                }
+                                font.pixelSize: 8
+                                font.bold: true
+                                color: colCyan
+                            }
+                        }
+
+                        Canvas {
+                            id: liveShapeCanvas
+                            anchors.fill: parent
+                            anchors.topMargin: 16
+
+                            property var params: root.currentParamValues
+                            property var shapeObj: root.selectedShape
+
+                            onParamsChanged: requestPaint()
+                            onShapeObjChanged: requestPaint()
+
+                            onPaint: {
+                                var ctx = getContext("2d")
+                                ctx.clearRect(0, 0, width, height)
+                                if (!shapeObj) return
+
+                                var p = params || {}
+                                var cat = shapeObj.category || "primitives"
+                                var sid = shapeObj.id || ""
+
+                                var cx = width / 2.0
+                                var cy = height / 2.0 + 16
+
+                                var wVal = Number(p["width"] || p["length"] || p["size"] || p["base_size"] || p["base_w"] || p["span"] || 2.5)
+                                var dVal = Number(p["depth"] || p["projection"] || p["tread"] || p["radius"] || (wVal * 0.7) || 2.0)
+                                var hVal = Number(p["height"] || p["rise"] || p["thickness"] || (p["steps"] ? p["steps"] * 0.18 : 2.5) || 2.5)
+
+                                var maxDim = Math.max(wVal, dVal, hVal, 1.5)
+                                var scale = Math.min((width * 0.45) / maxDim, (height * 0.55) / maxDim)
+
+                                var sw = Math.max(12, wVal * scale * 0.866)
+                                var sd = Math.max(10, dVal * scale * 0.866)
+                                var sh = Math.max(14, hVal * scale * 1.0)
+
+                                if (cat === "stairs" || sid.indexOf("stair") !== -1 || sid.indexOf("step") !== -1) {
+                                    var nSteps = Math.min(14, Math.max(4, Math.round(Number(p["steps"] || 10))))
+                                    var rStep = (sh * 0.85) / nSteps
+                                    var tStep = (sw * 1.2) / nSteps
+                                    var startX = cx - (sw * 0.6)
+                                    var startY = cy + (sh * 0.4)
+                                    var depthOffset = sd * 0.35
+
+                                    ctx.beginPath()
+                                    var curX = startX
+                                    var curY = startY
+                                    ctx.moveTo(curX, curY)
+                                    for (var i = 0; i < nSteps; i++) {
+                                        curY -= rStep
+                                        ctx.lineTo(curX, curY)
+                                        curX += tStep
+                                        ctx.lineTo(curX, curY)
+                                    }
+                                    ctx.lineTo(curX, startY)
+                                    ctx.closePath()
+                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#00F5FF"
+                                    ctx.lineWidth = 1.8
+                                    ctx.stroke()
+
+                                    ctx.beginPath()
+                                    curX = startX
+                                    curY = startY
+                                    for (var j = 0; j < nSteps; j++) {
+                                        curY -= rStep
+                                        ctx.moveTo(curX, curY)
+                                        ctx.lineTo(curX + depthOffset, curY - (depthOffset * 0.4))
+                                        curX += tStep
+                                        ctx.lineTo(curX + depthOffset, curY - (depthOffset * 0.4))
+                                        ctx.lineTo(curX, curY)
+                                    }
+                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.8)"
+                                    ctx.lineWidth = 1.2
+                                    ctx.stroke()
+                                } else if (cat === "columns" || sid.indexOf("col_") !== -1 || sid.indexOf("cyl") !== -1 || sid.indexOf("pipe") !== -1 || sid.indexOf("cone") !== -1) {
+                                    var rPix = Math.max(14, (wVal / 2.0) * scale * 0.9)
+                                    var topY = cy - (sh * 0.45)
+                                    var botY = cy + (sh * 0.35)
+
+                                    // Bottom ellipse
+                                    ctx.save()
+                                    ctx.translate(cx, botY)
+                                    ctx.scale(1, 0.35)
+                                    ctx.beginPath()
+                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
+                                    ctx.restore()
+                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#00F5FF"
+                                    ctx.lineWidth = 1.5
+                                    ctx.stroke()
+
+                                    // Side profile lines
+                                    ctx.beginPath()
+                                    ctx.moveTo(cx - rPix, botY); ctx.lineTo(cx - rPix, topY)
+                                    ctx.moveTo(cx + rPix, botY); ctx.lineTo(cx + rPix, topY)
+                                    ctx.strokeStyle = "rgba(0, 245, 255, 0.7)"
+                                    ctx.lineWidth = 1.5
+                                    ctx.stroke()
+
+                                    // Top ellipse
+                                    ctx.save()
+                                    ctx.translate(cx, topY)
+                                    ctx.scale(1, 0.35)
+                                    ctx.beginPath()
+                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
+                                    ctx.restore()
+                                    ctx.fillStyle = "rgba(139, 92, 246, 0.25)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#8B5CF6"
+                                    ctx.lineWidth = 1.8
+                                    ctx.stroke()
+                                } else if (sid.indexOf("sphere") !== -1 || sid.indexOf("dome") !== -1 || sid.indexOf("globe") !== -1) {
+                                    var rPix = Math.max(16, (wVal / 2.0) * scale * 1.1)
+
+                                    ctx.beginPath()
+                                    ctx.arc(cx, cy, rPix, 0, 2 * Math.PI)
+                                    ctx.fillStyle = "rgba(0, 245, 255, 0.08)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#00F5FF"
+                                    ctx.lineWidth = 1.6
+                                    ctx.stroke()
+
+                                    ctx.save()
+                                    ctx.translate(cx, cy)
+                                    ctx.scale(1, 0.35)
+                                    ctx.beginPath()
+                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
+                                    ctx.restore()
+                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.7)"
+                                    ctx.lineWidth = 1.4
+                                    ctx.stroke()
+
+                                    ctx.save()
+                                    ctx.translate(cx, cy)
+                                    ctx.scale(0.35, 1)
+                                    ctx.beginPath()
+                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
+                                    ctx.restore()
+                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.5)"
+                                    ctx.lineWidth = 1.2
+                                    ctx.stroke()
+                                } else if (cat === "roofs" || sid.indexOf("roof") !== -1 || sid.indexOf("truss") !== -1 || sid.indexOf("gable") !== -1) {
+                                    var halfW = sw * 0.85
+                                    var apexY = cy - (sh * 0.5)
+                                    var baseLeftX = cx - halfW
+                                    var baseRightX = cx + halfW
+                                    var baseFrontY = cy + (sh * 0.35)
+                                    var ridgeDx = -sd * 0.45
+                                    var ridgeDy = -sd * 0.25
+
+                                    ctx.beginPath()
+                                    ctx.moveTo(baseLeftX, baseFrontY)
+                                    ctx.lineTo(cx, apexY)
+                                    ctx.lineTo(baseRightX, baseFrontY)
+                                    ctx.closePath()
+                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#00F5FF"
+                                    ctx.lineWidth = 1.8
+                                    ctx.stroke()
+
+                                    ctx.beginPath()
+                                    ctx.moveTo(cx, apexY)
+                                    ctx.lineTo(cx + ridgeDx, apexY + ridgeDy)
+                                    ctx.lineTo(baseRightX + ridgeDx, baseFrontY + ridgeDy)
+                                    ctx.lineTo(baseRightX, baseFrontY)
+                                    ctx.closePath()
+                                    ctx.fillStyle = "rgba(139, 92, 246, 0.20)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#8B5CF6"
+                                    ctx.lineWidth = 1.5
+                                    ctx.stroke()
+
+                                    ctx.beginPath()
+                                    ctx.moveTo(cx + ridgeDx, apexY + ridgeDy)
+                                    ctx.lineTo(baseLeftX + ridgeDx, baseFrontY + ridgeDy)
+                                    ctx.lineTo(baseLeftX, baseFrontY)
+                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.6)"
+                                    ctx.lineWidth = 1.2
+                                    ctx.stroke()
+                                } else {
+                                    // Universal 2.5D Isometric Prism
+                                    var bx = cx
+                                    var by = cy + (sh * 0.35)
+                                    var rx = sw * 0.866
+                                    var ry = sw * 0.4
+                                    var lx = -sd * 0.866
+                                    var ly = sd * 0.4
+
+                                    ctx.beginPath()
+                                    ctx.moveTo(bx, by - sh)
+                                    ctx.lineTo(bx + rx, by - ry - sh)
+                                    ctx.lineTo(bx + rx + lx, by - ry - ly - sh)
+                                    ctx.lineTo(bx + lx, by - ly - sh)
+                                    ctx.closePath()
+                                    ctx.fillStyle = "rgba(139, 92, 246, 0.2)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#8B5CF6"
+                                    ctx.lineWidth = 1.8
+                                    ctx.stroke()
+
+                                    ctx.beginPath()
+                                    ctx.moveTo(bx, by)
+                                    ctx.lineTo(bx + rx, by - ry)
+                                    ctx.lineTo(bx + rx, by - ry - sh)
+                                    ctx.lineTo(bx, by - sh)
+                                    ctx.closePath()
+                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "#00F5FF"
+                                    ctx.lineWidth = 1.5
+                                    ctx.stroke()
+
+                                    ctx.beginPath()
+                                    ctx.moveTo(bx, by)
+                                    ctx.lineTo(bx + lx, by - ly)
+                                    ctx.lineTo(bx + lx, by - ly - sh)
+                                    ctx.lineTo(bx, by - sh)
+                                    ctx.closePath()
+                                    ctx.fillStyle = "rgba(0, 245, 255, 0.06)"
+                                    ctx.fill()
+                                    ctx.strokeStyle = "rgba(0, 245, 255, 0.7)"
+                                    ctx.lineWidth = 1.5
+                                    ctx.stroke()
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
+
+                    // Scrollable Parameter Sliders List
+                    ScrollView {
+                        id: paramsScrollView
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        contentWidth: availableWidth
+
+                        ColumnLayout {
+                            width: paramsScrollView.availableWidth
+                            spacing: 12
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    text: "PARAMETRIC SPECIFICATIONS"
+                                    font.pixelSize: 9
+                                    font.bold: true
+                                    font.letterSpacing: 0.8
+                                    color: colCyan
+                                }
+                                Item { Layout.fillWidth: true }
+                                Text {
+                                    text: "Live visual tuning"
+                                    font.pixelSize: 9
+                                    color: colTextMuted
+                                }
+                            }
+
+                            Repeater {
+                                model: root.selectedShape ? root.selectedShape.params : []
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    width: paramsScrollView.availableWidth
+                                    height: 60
+                                    radius: 10
+                                    color: Qt.rgba(1, 1, 1, 0.04)
+                                    border.width: 1
+                                    border.color: colBorderSubtle
+
+                                    property real curVal: (root.currentParamValues[modelData.key] !== undefined) ? root.currentParamValues[modelData.key] : modelData.val
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 10
+                                        anchors.topMargin: 6
+                                        anchors.bottomMargin: 6
+                                        spacing: 2
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Text {
+                                                text: modelData.name
+                                                font.pixelSize: 10
+                                                font.bold: true
+                                                color: colTextPrimary
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                            Text {
+                                                text: (modelData.step >= 1 ? parent.parent.parent.curVal.toFixed(0) : parent.parent.parent.curVal.toFixed(2)) + " " + modelData.unit
+                                                font.pixelSize: 10
+                                                font.bold: true
+                                                color: colCyan
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 6
+
+                                            // Stepper -
+                                            Rectangle {
+                                                width: 22; height: 22; radius: 5
+                                                color: stepMinM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
+                                                border.width: 1; border.color: colBorderSubtle
+                                                FAIcon { anchors.centerIn: parent; text: fa.minus; font.pixelSize: 8; color: colTextPrimary }
+                                                MouseArea {
+                                                    id: stepMinM
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        var nv = Math.max(modelData.min, parent.parent.parent.parent.curVal - modelData.step)
+                                                        root.updateShapeParam(modelData.key, nv)
+                                                        liveShapeCanvas.requestPaint()
+                                                    }
+                                                }
+                                            }
+
+                                            Slider {
+                                                id: paramSlider
+                                                Layout.fillWidth: true
+                                                from: modelData.min
+                                                to: modelData.max
+                                                stepSize: modelData.step
+                                                value: parent.parent.parent.curVal
+                                                onMoved: {
+                                                    root.updateShapeParam(modelData.key, value)
+                                                    liveShapeCanvas.requestPaint()
+                                                }
+                                            }
+
+                                            // Stepper +
+                                            Rectangle {
+                                                width: 22; height: 22; radius: 5
+                                                color: stepPluM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
+                                                border.width: 1; border.color: colBorderSubtle
+                                                FAIcon { anchors.centerIn: parent; text: fa.plus; font.pixelSize: 8; color: colTextPrimary }
+                                                MouseArea {
+                                                    id: stepPluM
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        var nv = Math.min(modelData.max, parent.parent.parent.parent.curVal + modelData.step)
+                                                        root.updateShapeParam(modelData.key, nv)
+                                                        liveShapeCanvas.requestPaint()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Reset Defaults Button
+                            Rectangle {
+                                Layout.alignment: Qt.AlignRight
+                                height: 22
+                                implicitWidth: rstTxt.implicitWidth + 14
+                                radius: 11
+                                color: rstM.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                                border.width: 1
+                                border.color: colBorderSubtle
+
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    FAIcon { text: fa.sync; font.pixelSize: 8; color: colTextSecondary }
+                                    Text {
+                                        id: rstTxt
+                                        text: "Reset Defaults"
+                                        font.pixelSize: 9
+                                        color: colTextSecondary
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: rstM
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (root.selectedShape) {
+                                            var vals = {}
+                                            for (var i = 0; i < root.selectedShape.params.length; i++) {
+                                                var p = root.selectedShape.params[i]
+                                                vals[p.key] = p.val
+                                            }
+                                            root.currentParamValues = vals
+                                            liveShapeCanvas.requestPaint()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
+
+                    // Drawer Action Button (Bottom Fixed)
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 42
+                        radius: 12
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: mBuildM.containsMouse ? "#2DFEFF" : colCyan }
+                            GradientStop { position: 1.0; color: "#5E17EB" }
+                        }
+
+                        RowLayout {
                             anchors.centerIn: parent
                             spacing: 8
-                            FAIcon { text: fa.bolt; font.pixelSize: 13; color: colCyan }
+                            FAIcon { text: fa.bolt; font.pixelSize: 12; color: "#FFFFFF" }
                             Text {
-                                text: "1-Click Auto Setup"
+                                text: "BUILD IN SKETCHUP 2026"
                                 font.pixelSize: 11
                                 font.bold: true
+                                font.letterSpacing: 0.8
                                 color: "#FFFFFF"
                             }
                         }
 
                         MouseArea {
-                            id: autoSetupM
+                            id: mBuildM
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: backend.autoSetupPlugin()
-                        }
-                    }
-
-                    // Live Status Capsule
-                    Rectangle {
-                        property bool isConn: backend ? backend.connected : false
-                        height: 38
-                        width: statusRow.implicitWidth + 28
-                        radius: 19
-                        color: isConn ? Qt.rgba(0.06, 0.72, 0.50, 0.15) : Qt.rgba(0.96, 0.62, 0.04, 0.15)
-                        border.width: 1
-                        border.color: isConn ? Qt.rgba(0.06, 0.72, 0.50, 0.40) : Qt.rgba(0.96, 0.62, 0.04, 0.40)
-
-                        RowLayout {
-                            id: statusRow
-                            anchors.centerIn: parent
-                            spacing: 8
-
-                            Rectangle {
-                                width: 8; height: 8; radius: 4
-                                color: parent.parent.isConn ? colEmerald : colAmber
-                                SequentialAnimation on opacity {
-                                    loops: Animation.Infinite
-                                    NumberAnimation { to: 0.3; duration: 800 }
-                                    NumberAnimation { to: 1.0; duration: 800 }
-                                }
-                            }
-
-                            Text {
-                                text: parent.parent.isConn ? ("ONLINE: " + (backend ? backend.modelName : "") + " (" + (backend ? backend.units : "") + ")") : "BRIDGE OFFLINE (127.0.0.1:9876)"
-                                font.pixelSize: 11
-                                font.bold: true
-                                color: parent.parent.isConn ? colEmerald : colAmber
-                            }
-                        }
-                    }
-                }
-
-                Rectangle { Layout.fillWidth: true; height: 1; color: colBorderLight }
-
-                // Helpful Connection & Setup Banner (When Offline)
-                Rectangle {
-                    visible: backend ? !backend.connected : true
-                    Layout.fillWidth: true
-                    height: 36
-                    radius: 10
-                    color: Qt.rgba(0.96, 0.62, 0.04, 0.12)
-                    border.width: 1
-                    border.color: Qt.rgba(0.96, 0.62, 0.04, 0.3)
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        spacing: 10
-
-                        FAIcon { text: fa.info; font.pixelSize: 12; color: colAmber }
-                        Text {
-                            text: "SketchUp Bridge is offline. Click 'Auto Setup' to install the plugin into SketchUp, then launch SketchUp 2026."
-                            font.pixelSize: 11
-                            color: colTextPrimary
-                            Layout.fillWidth: true
-                        }
-
-                        Rectangle {
-                            height: 24
-                            width: quickSetupTxt.implicitWidth + 18
-                            radius: 12
-                            color: qSetupM.containsMouse ? colCyan : Qt.rgba(0, 0.95, 1, 0.2)
-                            border.width: 1
-                            border.color: colCyan
-
-                            Text {
-                                id: quickSetupTxt
-                                anchors.centerIn: parent
-                                text: "Install Now"
-                                font.pixelSize: 10
-                                font.bold: true
-                                color: qSetupM.containsMouse ? "#05070B" : colCyan
-                            }
-                            MouseArea {
-                                id: qSetupM
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: backend.autoSetupPlugin()
-                            }
-                        }
-                    }
-                }
-
-                // Dynamic Workspace Views
-                StackLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    currentIndex: activeNav
-
-                    // =========================================================
-                    // VIEW 0: PARAMETRIC ROOMS WITH INTERACTIVE SCHEMATIC
-                    // =========================================================
-                    RowLayout {
-                        spacing: 20
-
-                        // Parameter Controls Card
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            radius: 18
-                            color: colGlassCard
-                            border.width: 1
-                            border.color: colBorderLight
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 20
-                                spacing: 14
-
-                                // Presets Bar
-                                RowLayout {
-                                    spacing: 8
-                                    Text { text: "Presets:"; font.pixelSize: 11; color: colTextSecondary }
-
-                                    Repeater {
-                                        model: [
-                                            { label: "Studio 6×5m", pw: 6.0, pd: 5.0, ph: 3.0, pt: 0.20 },
-                                            { label: "Office 8×6m", pw: 8.0, pd: 6.0, ph: 3.2, pt: 0.25 },
-                                            { label: "Gallery 12×8m", pw: 12.0, pd: 8.0, ph: 4.0, pt: 0.30 }
-                                        ]
-
-                                        Rectangle {
-                                            width: cTxt.implicitWidth + 20
-                                            height: 28
-                                            radius: 14
-                                            color: cMouse.containsMouse ? Qt.rgba(0, 0.95, 1, 0.22) : Qt.rgba(1, 1, 1, 0.08)
-                                            border.width: 1
-                                            border.color: colBorderLight
-                                            Text {
-                                                id: cTxt
-                                                anchors.centerIn: parent
-                                                text: modelData.label
-                                                font.pixelSize: 10
-                                                font.bold: true
-                                                color: colTextPrimary
-                                            }
-                                            MouseArea {
-                                                id: cMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    rWidth.value = modelData.pw
-                                                    rDepth.value = modelData.pd
-                                                    rHeight.value = modelData.ph
-                                                    rThick.value = modelData.pt
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Dimension Sliders
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    RowLayout {
-                                        Text { text: "Width (X):"; font.pixelSize: 12; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: rWidth.value.toFixed(2) + " m"; font.pixelSize: 12; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: rWidth; Layout.fillWidth: true; from: 2.0; to: 25.0; value: 6.0; stepSize: 0.5 }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    RowLayout {
-                                        Text { text: "Depth / Length (Y):"; font.pixelSize: 12; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: rDepth.value.toFixed(2) + " m"; font.pixelSize: 12; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: rDepth; Layout.fillWidth: true; from: 2.0; to: 25.0; value: 5.0; stepSize: 0.5 }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    RowLayout {
-                                        Text { text: "Ceiling Height (Z):"; font.pixelSize: 12; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: rHeight.value.toFixed(2) + " m"; font.pixelSize: 12; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: rHeight; Layout.fillWidth: true; from: 2.0; to: 10.0; value: 3.0; stepSize: 0.1 }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    RowLayout {
-                                        Text { text: "Wall Thickness:"; font.pixelSize: 12; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: (rThick.value * 100).toFixed(0) + " cm"; font.pixelSize: 12; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: rThick; Layout.fillWidth: true; from: 0.10; to: 0.60; value: 0.20; stepSize: 0.05 }
-                                }
-
-                                Item { Layout.fillHeight: true }
-
-                                // Build Button
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 48
-                                    radius: 14
-                                    gradient: Gradient {
-                                        GradientStop { position: 0.0; color: btnGenMouse.containsMouse ? "#2DFEFF" : colCyan }
-                                        GradientStop { position: 1.0; color: "#4A00E0" }
-                                    }
-
-                                    RowLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 10
-                                        FAIcon { text: fa.bolt; font.pixelSize: 15; color: "#FFFFFF" }
-                                        Text {
-                                            text: "BUILD 3D ROOM IN SKETCHUP"
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                            font.letterSpacing: 1.0
-                                            color: "#FFFFFF"
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: btnGenMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: backend.createRoom(rWidth.value, rDepth.value, rHeight.value, rThick.value)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Right: Interactive 2.5D Schematic Wireframe Canvas
-                        Rectangle {
-                            Layout.preferredWidth: 380
-                            Layout.fillHeight: true
-                            radius: 18
-                            color: colGlassCard
-                            border.width: 1
-                            border.color: colBorderLight
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 18
-                                spacing: 12
-
-                                RowLayout {
-                                    Text { text: "LIVE 2.5D SCHEMATIC"; font.pixelSize: 11; font.bold: true; color: colViolet }
-                                    Item { Layout.fillWidth: true }
-                                    Text { text: rWidth.value.toFixed(1) + " × " + rDepth.value.toFixed(1) + " × " + rHeight.value.toFixed(1) + "m"; font.pixelSize: 11; color: colCyan }
-                                }
-
-                                // Custom Canvas rendering isometric room wireframe in real-time
-                                Canvas {
-                                    id: schematicCanvas
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-
-                                    property real wVal: rWidth.value
-                                    property real dVal: rDepth.value
-                                    property real hVal: rHeight.value
-                                    property real tVal: rThick.value
-
-                                    onWValChanged: requestPaint()
-                                    onDValChanged: requestPaint()
-                                    onHValChanged: requestPaint()
-                                    onTValChanged: requestPaint()
-
-                                    onPaint: {
-                                        var ctx = getContext("2d")
-                                        ctx.clearRect(0, 0, width, height)
-
-                                        var cx = width / 2.0
-                                        var cy = height / 2.0 + 30
-
-                                        var scale = Math.min(width, height) / 45.0
-                                        var sw = wVal * scale * 0.866
-                                        var sd = dVal * scale * 0.866
-                                        var sh = hVal * scale * 1.2
-
-                                        // Floor footprint
-                                        ctx.beginPath()
-                                        ctx.moveTo(cx, cy)
-                                        ctx.lineTo(cx + sw, cy - (wVal * scale * 0.5))
-                                        ctx.lineTo(cx + sw - sd, cy - ((wVal + dVal) * scale * 0.5))
-                                        ctx.lineTo(cx - sd, cy - (dVal * scale * 0.5))
-                                        ctx.closePath()
-                                        ctx.fillStyle = "rgba(0, 245, 255, 0.08)"
-                                        ctx.fill()
-                                        ctx.strokeStyle = "#00F5FF"
-                                        ctx.lineWidth = 1.5
-                                        ctx.stroke()
-
-                                        // Extruded vertical walls
-                                        ctx.beginPath()
-                                        ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - sh)
-                                        ctx.moveTo(cx + sw, cy - (wVal * scale * 0.5)); ctx.lineTo(cx + sw, cy - (wVal * scale * 0.5) - sh)
-                                        ctx.moveTo(cx - sd, cy - (dVal * scale * 0.5)); ctx.lineTo(cx - sd, cy - (dVal * scale * 0.5) - sh)
-                                        ctx.strokeStyle = "rgba(139, 92, 246, 0.8)"
-                                        ctx.lineWidth = 1.5
-                                        ctx.stroke()
-
-                                        // Top ceiling rim
-                                        ctx.beginPath()
-                                        ctx.moveTo(cx, cy - sh)
-                                        ctx.lineTo(cx + sw, cy - (wVal * scale * 0.5) - sh)
-                                        ctx.lineTo(cx + sw - sd, cy - ((wVal + dVal) * scale * 0.5) - sh)
-                                        ctx.lineTo(cx - sd, cy - (dVal * scale * 0.5) - sh)
-                                        ctx.closePath()
-                                        ctx.strokeStyle = "#8B5CF6"
-                                        ctx.lineWidth = 2.0
-                                        ctx.stroke()
-                                    }
-                                }
-
-                                Text {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    text: "Real-time geometric scale preview"
-                                    font.pixelSize: 10
-                                    color: colTextSecondary
-                                }
-                            }
-                        }
-                    }
-
-                    // =========================================================
-                    // VIEW 1: PARAMETRIC STAIRS STUDIO
-                    // =========================================================
-                    RowLayout {
-                        id: stairsView
-                        spacing: 20
-
-                        property string stStyle: "solid"
-
-                        // Parameter Controls Card
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            radius: 18
-                            color: colGlassCard
-                            border.width: 1
-                            border.color: colBorderLight
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 20
-                                spacing: 12
-
-                                // Title & Style Picker
-                                RowLayout {
-                                    spacing: 10
-                                    Text { text: "STAIR ARCHITECTURE"; font.pixelSize: 13; font.bold: true; color: colCyan }
-                                    Item { Layout.fillWidth: true }
-
-                                    Repeater {
-                                        model: [
-                                            { id: "solid", label: "Solid" },
-                                            { id: "floating", label: "Floating" },
-                                            { id: "spiral", label: "Spiral" }
-                                        ]
-                                        Rectangle {
-                                            property bool isPick: stairsView.stStyle === modelData.id
-                                            width: stTypTxt.implicitWidth + 16
-                                            height: 24
-                                            radius: 12
-                                            color: isPick ? Qt.rgba(0, 0.95, 1, 0.25) : (stTypM.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
-                                            border.width: 1
-                                            border.color: isPick ? colCyan : colBorderLight
-
-                                            Text {
-                                                id: stTypTxt
-                                                anchors.centerIn: parent
-                                                text: modelData.label
-                                                font.pixelSize: 10
-                                                font.bold: parent.isPick
-                                                color: parent.isPick ? colCyan : colTextSecondary
-                                            }
-                                            MouseArea {
-                                                id: stTypM
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    stairsView.stStyle = modelData.id
-                                                    stairCanvas.requestPaint()
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Quick Presets Bar
-                                RowLayout {
-                                    spacing: 8
-                                    Text { text: "Presets:"; font.pixelSize: 11; color: colTextSecondary }
-
-                                    Repeater {
-                                        model: [
-                                            { label: "Residential (15 steps)", steps: 15, w: 1.0, t: 0.28, r: 0.18, style: "solid" },
-                                            { label: "Modern Floating (14 steps)", steps: 14, w: 1.1, t: 0.29, r: 0.17, style: "floating" },
-                                            { label: "Compact Spiral (18 steps)", steps: 18, w: 1.2, t: 0.26, r: 0.18, style: "spiral" }
-                                        ]
-
-                                        Rectangle {
-                                            width: stChpTxt.implicitWidth + 18
-                                            height: 26
-                                            radius: 13
-                                            color: stChpM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.22) : Qt.rgba(1, 1, 1, 0.08)
-                                            border.width: 1
-                                            border.color: colBorderLight
-                                            Text {
-                                                id: stChpTxt
-                                                anchors.centerIn: parent
-                                                text: modelData.label
-                                                font.pixelSize: 10
-                                                font.bold: true
-                                                color: colTextPrimary
-                                            }
-                                            MouseArea {
-                                                id: stChpM
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    stSteps.value = modelData.steps
-                                                    stWidth.value = modelData.w
-                                                    stTread.value = modelData.t
-                                                    stRiser.value = modelData.r
-                                                    stairsView.stStyle = modelData.style
-                                                    stairCanvas.requestPaint()
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Sliders
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 3
-                                    RowLayout {
-                                        Text { text: "Number of Steps:"; font.pixelSize: 11; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: stSteps.value.toFixed(0) + " steps"; font.pixelSize: 11; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: stSteps; Layout.fillWidth: true; from: 3; to: 32; value: 15; stepSize: 1; onValueChanged: stairCanvas.requestPaint() }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 3
-                                    RowLayout {
-                                        Text { text: "Stair Width:"; font.pixelSize: 11; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: stWidth.value.toFixed(2) + " m"; font.pixelSize: 11; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: stWidth; Layout.fillWidth: true; from: 0.60; to: 2.80; value: 1.00; stepSize: 0.1; onValueChanged: stairCanvas.requestPaint() }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 3
-                                    RowLayout {
-                                        Text { text: "Tread Depth (Run):"; font.pixelSize: 11; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: (stTread.value * 100).toFixed(0) + " cm"; font.pixelSize: 11; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: stTread; Layout.fillWidth: true; from: 0.20; to: 0.38; value: 0.28; stepSize: 0.01; onValueChanged: stairCanvas.requestPaint() }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 3
-                                    RowLayout {
-                                        Text { text: "Riser Height (Rise):"; font.pixelSize: 11; color: colTextPrimary }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: (stRiser.value * 100).toFixed(1) + " cm"; font.pixelSize: 11; font.bold: true; color: colCyan }
-                                    }
-                                    Slider { id: stRiser; Layout.fillWidth: true; from: 0.14; to: 0.22; value: 0.18; stepSize: 0.005; onValueChanged: stairCanvas.requestPaint() }
-                                }
-
-                                // Ergonomic Metrics Telemetry Card
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 38
-                                    radius: 10
-                                    color: Qt.rgba(1, 1, 1, 0.04)
-                                    border.width: 1
-                                    border.color: colBorderLight
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 12
-                                        anchors.rightMargin: 12
-                                        spacing: 14
-
-                                        RowLayout {
-                                            spacing: 4
-                                            Text { text: "Total Rise:"; font.pixelSize: 10; color: colTextSecondary }
-                                            Text { text: (stSteps.value * stRiser.value).toFixed(2) + " m"; font.pixelSize: 11; font.bold: true; color: colCyan }
-                                        }
-                                        RowLayout {
-                                            spacing: 4
-                                            Text { text: "Total Run:"; font.pixelSize: 10; color: colTextSecondary }
-                                            Text { text: (stSteps.value * stTread.value).toFixed(2) + " m"; font.pixelSize: 11; font.bold: true; color: colViolet }
-                                        }
-                                        RowLayout {
-                                            spacing: 4
-                                            Text { text: "Incline:"; font.pixelSize: 10; color: colTextSecondary }
-                                            Text { text: (Math.atan(stRiser.value / stTread.value) * 180 / Math.PI).toFixed(1) + "°"; font.pixelSize: 11; font.bold: true; color: colEmerald }
-                                        }
-                                    }
-                                }
-
-                                // Build Action Button
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 46
-                                    radius: 14
-                                    gradient: Gradient {
-                                        GradientStop { position: 0.0; color: stBtnM.containsMouse ? "#2DFEFF" : colCyan }
-                                        GradientStop { position: 1.0; color: "#4A00E0" }
-                                    }
-
-                                    RowLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 8
-                                        FAIcon { text: fa.bolt; font.pixelSize: 14; color: "#FFFFFF" }
-                                        Text {
-                                            text: "BUILD STAIRS IN SKETCHUP"
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                            font.letterSpacing: 1.0
-                                            color: "#FFFFFF"
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: stBtnM
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: backend.createStairs(stSteps.value, stWidth.value, stTread.value, stRiser.value, stairsView.stStyle)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Live 2.5D Isometric Stair Schematic
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            radius: 18
-                            color: colGlassCard
-                            border.width: 1
-                            border.color: colBorderLight
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 20
-                                spacing: 10
-
-                                RowLayout {
-                                    Text { text: "LIVE STAIR PROFILE"; font.pixelSize: 11; font.bold: true; color: colViolet }
-                                    Item { Layout.fillWidth: true }
-                                    Text {
-                                        text: stSteps.value.toFixed(0) + " risers @ " + (stRiser.value * 100).toFixed(1) + "cm"
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                        color: colCyan
-                                    }
-                                }
-
-                                Canvas {
-                                    id: stairCanvas
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-
-                                    onPaint: {
-                                        var ctx = getContext("2d")
-                                        ctx.clearRect(0, 0, width, height)
-
-                                        var nSteps = stSteps.value
-                                        var tVal = stTread.value
-                                        var rVal = stRiser.value
-                                        var stMode = stairsView.stStyle
-
-                                        var totalH = nSteps * rVal
-                                        var totalL = nSteps * tVal
-
-                                        var maxDim = Math.max(totalL, totalH, 2.5)
-                                        var scale = Math.min((width * 0.70) / maxDim, (height * 0.70) / maxDim)
-
-                                        var startX = width * 0.16
-                                        var startY = height * 0.82
-
-                                        // Ground baseline
-                                        ctx.beginPath()
-                                        ctx.moveTo(startX - 15, startY)
-                                        ctx.lineTo(startX + (totalL * scale) + 30, startY)
-                                        ctx.strokeStyle = "rgba(255, 255, 255, 0.18)"
-                                        ctx.lineWidth = 1.0
-                                        ctx.stroke()
-
-                                        if (stMode === "spiral") {
-                                            // Draw spiral projection rings
-                                            var cx = width * 0.50
-                                            var cy = height * 0.50
-                                            var rad = 75
-                                            ctx.beginPath()
-                                            ctx.arc(cx, cy, rad, 0, 2 * Math.PI)
-                                            ctx.strokeStyle = "rgba(0, 245, 255, 0.4)"
-                                            ctx.lineWidth = 1.5
-                                            ctx.stroke()
-
-                                            ctx.beginPath()
-                                            ctx.arc(cx, cy, 20, 0, 2 * Math.PI)
-                                            ctx.fillStyle = "rgba(139, 92, 246, 0.6)"
-                                            ctx.fill()
-
-                                            for (var s = 0; s < nSteps; s++) {
-                                                var ang = s * (20 * Math.PI / 180)
-                                                ctx.beginPath()
-                                                ctx.moveTo(cx + 20 * Math.cos(ang), cy + 20 * Math.sin(ang))
-                                                ctx.lineTo(cx + rad * Math.cos(ang), cy + rad * Math.sin(ang))
-                                                ctx.strokeStyle = Qt.rgba(0, 0.95, 1, 0.6)
-                                                ctx.lineWidth = 1.5
-                                                ctx.stroke()
-                                            }
-                                        } else {
-                                            // Straight or Floating Steps
-                                            ctx.beginPath()
-                                            ctx.moveTo(startX, startY)
-                                            var curX = startX
-                                            var curY = startY
-
-                                            for (var i = 0; i < nSteps; i++) {
-                                                curY -= (rVal * scale)
-                                                ctx.lineTo(curX, curY)
-                                                curX += (tVal * scale)
-                                                ctx.lineTo(curX, curY)
-                                            }
-
-                                            if (stMode === "solid") {
-                                                ctx.lineTo(curX, startY)
-                                                ctx.closePath()
-                                                ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
-                                                ctx.fill()
-                                                ctx.strokeStyle = "#00F5FF"
-                                                ctx.lineWidth = 2.0
-                                                ctx.stroke()
-                                            } else {
-                                                // Floating treads
-                                                ctx.strokeStyle = "#8B5CF6"
-                                                ctx.lineWidth = 2.2
-                                                ctx.stroke()
-                                            }
-
-                                            // Incline Slope dashed line
-                                            ctx.beginPath()
-                                            ctx.moveTo(startX, startY)
-                                            ctx.lineTo(curX, curY)
-                                            ctx.strokeStyle = "rgba(245, 158, 11, 0.5)"
-                                            ctx.lineWidth = 1.2
-                                            ctx.stroke()
-                                        }
-                                    }
-                                }
-
-                                Text {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    text: "Real-time architectural ergonomics preview"
-                                    font.pixelSize: 10
-                                    color: colTextSecondary
-                                }
-                            }
-                        }
-                    }
-
-                    // =========================================================
-                    // VIEW 2: 3D SOLIDS & MASSING
-                    // =========================================================
-                    RowLayout {
-                        spacing: 20
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            radius: 18
-                            color: colGlassCard
-                            border.width: 1
-                            border.color: colBorderLight
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 22
-                                spacing: 14
-
-                                Text { text: "EXTRUSION BOX MASSING"; font.pixelSize: 13; font.bold: true; color: colCyan }
-
-                                RowLayout {
-                                    spacing: 12
-                                    ColumnLayout {
-                                        Text { text: "Width (m):"; font.pixelSize: 11; color: colTextSecondary }
-                                        SpinBox { id: sBoxW; from: 1; to: 50; value: 4 }
-                                    }
-                                    ColumnLayout {
-                                        Text { text: "Depth (m):"; font.pixelSize: 11; color: colTextSecondary }
-                                        SpinBox { id: sBoxD; from: 1; to: 50; value: 4 }
-                                    }
-                                    ColumnLayout {
-                                        Text { text: "Height (m):"; font.pixelSize: 11; color: colTextSecondary }
-                                        SpinBox { id: sBoxH; from: 1; to: 50; value: 3 }
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 42; radius: 10
-                                    color: bBoxM.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08)
-                                    border.width: 1; border.color: colBorderLight
-                                    RowLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 8
-                                        FAIcon { text: fa.plus; font.pixelSize: 11; color: colCyan }
-                                        FAIcon { text: fa.cube; font.pixelSize: 13; color: colCyan }
-                                        Text { text: "Generate Solid Box"; font.pixelSize: 12; font.bold: true; color: colTextPrimary }
-                                    }
-                                    MouseArea { id: bBoxM; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: backend.createBox(sBoxW.value, sBoxD.value, sBoxH.value) }
-                                }
-
-                                Rectangle { Layout.fillWidth: true; height: 1; color: colBorderLight }
-
-                                Text { text: "ARCHITECTURAL COLUMN"; font.pixelSize: 13; font.bold: true; color: colViolet }
-
-                                RowLayout {
-                                    spacing: 12
-                                    ColumnLayout {
-                                        Text { text: "Radius (m):"; font.pixelSize: 11; color: colTextSecondary }
-                                        SpinBox { id: sCylR; from: 1; to: 10; value: 1 }
-                                    }
-                                    ColumnLayout {
-                                        Text { text: "Height (m):"; font.pixelSize: 11; color: colTextSecondary }
-                                        SpinBox { id: sCylH; from: 1; to: 30; value: 4 }
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 42; radius: 10
-                                    color: bCylM.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08)
-                                    border.width: 1; border.color: colBorderLight
-                                    RowLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 8
-                                        FAIcon { text: fa.plus; font.pixelSize: 11; color: colViolet }
-                                        FAIcon { text: fa.database; font.pixelSize: 13; color: colViolet }
-                                        Text { text: "Generate Column"; font.pixelSize: 12; font.bold: true; color: colTextPrimary }
-                                    }
-                                    MouseArea { id: bCylM; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: backend.createCylinder(sCylR.value, sCylH.value, 24) }
-                                }
-
-                                Item { Layout.fillHeight: true }
-
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 40; radius: 10
-                                    color: Qt.rgba(0.9, 0.2, 0.3, 0.16)
-                                    border.width: 1; border.color: Qt.rgba(0.9, 0.2, 0.3, 0.4)
-                                    RowLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 8
-                                        FAIcon { text: fa.trash; font.pixelSize: 13; color: "#FF5370" }
-                                        Text { text: "Clear Active Entities"; font.pixelSize: 11; font.bold: true; color: "#FF5370" }
-                                    }
-                                    MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: backend.clearModel() }
-                                }
-                            }
-                        }
-                    }
-
-                    // =========================================================
-                    // VIEW 2: CAMERA RIG
-                    // =========================================================
-                    Rectangle {
-                        radius: 18
-                        color: colGlassCard
-                        border.width: 1
-                        border.color: colBorderLight
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 28
-                            spacing: 18
-
-                            Text { text: "SKETCHUP CAMERA VIEWPORT RIG"; font.pixelSize: 14; font.bold: true; color: colCyan }
-                            Text { text: "Reorient the active viewport and fit scene extents with one click."; font.pixelSize: 12; color: colTextSecondary }
-
-                            GridLayout {
-                                columns: 3
-                                rowSpacing: 14
-                                columnSpacing: 14
-                                Layout.fillWidth: true
-
-                                Repeater {
-                                    model: [
-                                        { title: "Isometric (3D)", subtitle: "Default standard 3D perspective", cKey: "iso", icon: fa.cube },
-                                        { title: "Top View (Floor Plan)", subtitle: "Architectural 2D orthographic plan", cKey: "top", icon: fa.ruler },
-                                        { title: "Front Elevation", subtitle: "Facade perspective", cKey: "front", icon: fa.building },
-                                        { title: "Right Elevation", subtitle: "Side perspective", cKey: "right", icon: fa.arrowRight },
-                                        { title: "Left Elevation", subtitle: "Opposite side perspective", cKey: "left", icon: fa.arrowLeft }
-                                    ]
-
-                                    Rectangle {
-                                        Layout.fillWidth: true
-                                        height: 84
-                                        radius: 14
-                                        color: cmM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.16) : Qt.rgba(1, 1, 1, 0.05)
-                                        border.width: 1
-                                        border.color: cmM.containsMouse ? colCyan : colBorderLight
-
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 16
-                                            spacing: 14
-
-                                            FAIcon {
-                                                text: modelData.icon
-                                                font.pixelSize: 22
-                                                color: cmM.containsMouse ? colCyan : colTextPrimary
-                                            }
-                                            ColumnLayout {
-                                                Text { text: modelData.title; font.pixelSize: 13; font.bold: true; color: colTextPrimary }
-                                                Text { text: modelData.subtitle; font.pixelSize: 10; color: colTextSecondary }
-                                            }
-                                        }
-
-                                        MouseArea {
-                                            id: cmM
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: backend.setCamera(modelData.cKey)
-                                        }
-                                    }
-                                }
-                            }
-                            Item { Layout.fillHeight: true }
-                        }
-                    }
-
-                    // =========================================================
-                    // VIEW 3: EXPORT STUDIO
-                    // =========================================================
-                    Rectangle {
-                        radius: 18
-                        color: colGlassCard
-                        border.width: 1
-                        border.color: colBorderLight
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 28
-                            spacing: 18
-
-                            Text { text: "EXPORT PIPELINE & RENDERS"; font.pixelSize: 14; font.bold: true; color: colCyan }
-                            Text { text: "Directly export 3D geometry or trigger 4K viewport screenshots."; font.pixelSize: 12; color: colTextSecondary }
-
-                            RowLayout {
-                                spacing: 14
-                                property string selFmt: "obj"
-
-                                Repeater {
-                                    model: [
-                                        { fmt: "obj", title: "OBJ (Wavefront)", desc: "Standard 3D mesh" },
-                                        { fmt: "stl", title: "STL (3D Print)", desc: "Additive manufacturing" },
-                                        { fmt: "dae", title: "DAE (Collada)", desc: "Blender & Game engines" },
-                                        { fmt: "png", title: "PNG (Viewport Render)", desc: "Instant high-res image" }
-                                    ]
-
-                                    Rectangle {
-                                        property bool isPicked: expGroup.fmt === modelData.fmt
-                                        Layout.preferredWidth: 200
-                                        height: 76
-                                        radius: 14
-                                        color: isPicked ? Qt.rgba(0, 0.95, 1, 0.20) : (fmM.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.04))
-                                        border.width: 1
-                                        border.color: isPicked ? colCyan : colBorderLight
-
-                                        ColumnLayout {
-                                            anchors.centerIn: parent
-                                            spacing: 4
-                                            Text { text: modelData.title; font.pixelSize: 12; font.bold: true; color: isPicked ? colCyan : colTextPrimary }
-                                            Text { text: modelData.desc; font.pixelSize: 10; color: colTextSecondary }
-                                        }
-                                        MouseArea {
-                                            id: fmM
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: expGroup.fmt = modelData.fmt
-                                        }
-                                    }
-                                }
-                            }
-
-                            QtObject { id: expGroup; property string fmt: "obj" }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-                                Text { text: "Custom File Path (Leave blank to save to ~/Desktop automatically):"; font.pixelSize: 11; color: colTextSecondary }
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 42
-                                    radius: 10
-                                    color: "#05070B"
-                                    border.width: 1; border.color: colBorderLight
-                                    TextInput {
-                                        id: expPath
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 14; anchors.rightMargin: 14
-                                        verticalAlignment: TextInput.AlignVCenter
-                                        color: colTextPrimary
-                                        font.pixelSize: 12
-                                    }
-                                }
-                            }
-
-                            Item { Layout.fillHeight: true }
-
-                            Rectangle {
-                                Layout.fillWidth: true; height: 50; radius: 14
-                                gradient: Gradient {
-                                    GradientStop { position: 0.0; color: expBtnM.containsMouse ? "#00F5A0" : "#10B981" }
-                                    GradientStop { position: 1.0; color: "#047857" }
-                                }
-                                RowLayout {
-                                    anchors.centerIn: parent
-                                    spacing: 10
-                                    FAIcon { text: fa.floppy; font.pixelSize: 16; color: "#FFFFFF" }
-                                    Text {
-                                        text: "ONE-CLICK EXPORT TO DISK (" + expGroup.fmt.toUpperCase() + ")"
-                                        font.pixelSize: 12
-                                        font.bold: true
-                                        font.letterSpacing: 1.0
-                                        color: "#FFFFFF"
-                                    }
-                                }
-                                MouseArea {
-                                    id: expBtnM
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: backend.exportModel(expGroup.fmt, expPath.text)
-                                }
-                            }
-                        }
-                    }
-
-                    // =========================================================
-                    // VIEW 4: MODEL TELEMETRY
-                    // =========================================================
-                    Rectangle {
-                        radius: 18
-                        color: colGlassCard
-                        border.width: 1
-                        border.color: colBorderLight
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 28
-                            spacing: 18
-
-                            Text { text: "MODEL TELEMETRY & STATS"; font.pixelSize: 14; font.bold: true; color: colCyan }
-
-                            GridLayout {
-                                columns: 2
-                                rowSpacing: 14
-                                columnSpacing: 14
-                                Layout.fillWidth: true
-
-                                // Card 1: Dimensions
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 84
-                                    radius: 14
-                                    color: Qt.rgba(1, 1, 1, 0.05)
-                                    border.width: 1
-                                    border.color: colBorderLight
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 18
-                                        spacing: 16
-                                        FAIcon { text: fa.ruler; font.pixelSize: 26; color: colCyan }
-                                        ColumnLayout {
-                                            Text { text: "Bounding Dimensions"; font.pixelSize: 11; color: colTextSecondary }
-                                            Text { text: backend ? backend.dimensions : "—"; font.pixelSize: 18; font.bold: true; color: colCyan }
-                                        }
-                                    }
-                                }
-
-                                // Card 2: Faces
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 84
-                                    radius: 14
-                                    color: Qt.rgba(1, 1, 1, 0.05)
-                                    border.width: 1
-                                    border.color: colBorderLight
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 18
-                                        spacing: 16
-                                        FAIcon { text: fa.polygon; font.pixelSize: 26; color: colViolet }
-                                        ColumnLayout {
-                                            Text { text: "Faces / Surfaces"; font.pixelSize: 11; color: colTextSecondary }
-                                            Text { text: backend ? backend.facesCount.toString() : "0"; font.pixelSize: 18; font.bold: true; color: colCyan }
-                                        }
-                                    }
-                                }
-
-                                // Card 3: Edges
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 84
-                                    radius: 14
-                                    color: Qt.rgba(1, 1, 1, 0.05)
-                                    border.width: 1
-                                    border.color: colBorderLight
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 18
-                                        spacing: 16
-                                        FAIcon { text: fa.rulerVertical; font.pixelSize: 26; color: colAmber }
-                                        ColumnLayout {
-                                            Text { text: "Edges / Wireframe"; font.pixelSize: 11; color: colTextSecondary }
-                                            Text { text: backend ? backend.edgesCount.toString() : "0"; font.pixelSize: 18; font.bold: true; color: colCyan }
-                                        }
-                                    }
-                                }
-
-                                // Card 4: Groups & Components
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 84
-                                    radius: 14
-                                    color: Qt.rgba(1, 1, 1, 0.05)
-                                    border.width: 1
-                                    border.color: colBorderLight
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 18
-                                        spacing: 16
-                                        FAIcon { text: fa.boxes; font.pixelSize: 26; color: colEmerald }
-                                        ColumnLayout {
-                                            Text { text: "Groups & Components"; font.pixelSize: 11; color: colTextSecondary }
-                                            Text { text: backend ? (backend.groupsCount + backend.componentsCount).toString() : "0"; font.pixelSize: 18; font.bold: true; color: colCyan }
-                                        }
-                                    }
-                                }
-                            }
-                            Item { Layout.fillHeight: true }
-                        }
-                    }
-
-                    // =========================================================
-                    // VIEW 5: RUBY SCRIPT TERMINAL
-                    // =========================================================
-                    Rectangle {
-                        radius: 18
-                        color: colGlassCard
-                        border.width: 1
-                        border.color: colBorderLight
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 24
-                            spacing: 14
-
-                            RowLayout {
-                                Text { text: "RUBY SCRIPT TERMINAL"; font.pixelSize: 13; font.bold: true; color: colViolet }
-                                Item { Layout.fillWidth: true }
-                                Text { text: "Executes on SketchUp main UI thread with undo tracking"; font.pixelSize: 11; color: colTextSecondary }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                radius: 12
-                                color: "#05070B"
-                                border.width: 1; border.color: colBorderLight
-
-                                TextArea {
-                                    id: rbCode
-                                    anchors.fill: parent
-                                    anchors.margins: 14
-                                    color: "#A0F0FF"
-                                    font.family: "Menlo, Monaco, Consolas, monospace"
-                                    font.pixelSize: 12
-                                    wrapMode: TextArea.Wrap
-                                    text: "# Example: 10 procedural cubes in an ascending helix\n10.times do |i|\n  face = Sketchup.active_model.active_entities.add_face([\n    [i.m, 0, (i*0.5).m], [(i+0.8).m, 0, (i*0.5).m], [(i+0.8).m, 0.8.m, (i*0.5).m], [i.m, 0.8.m, (i*0.5).m]\n  ])\n  face.pushpull(-0.6.m)\nend"
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true; height: 42; radius: 10
-                                gradient: Gradient {
-                                    GradientStop { position: 0.0; color: colViolet }
-                                    GradientStop { position: 1.0; color: "#4A00E0" }
-                                }
-                                RowLayout {
-                                    anchors.centerIn: parent
-                                    spacing: 8
-                                    FAIcon { text: fa.play; font.pixelSize: 11; color: "#FFFFFF" }
-                                    Text { text: "Execute Ruby in SketchUp"; font.pixelSize: 12; font.bold: true; color: "#FFFFFF" }
-                                }
-                                MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: backend.evalRuby(rbCode.text) }
-                            }
+                            onClicked: root.buildSelectedShape()
                         }
                     }
                 }
@@ -1525,263 +1539,194 @@ ApplicationWindow {
     }
 
     // =========================================================================
-    // SLIDE-OVER DRAWER: HOW IT WORKS & CREDITS (Spacious & Clean Layout)
+    // EXPORT PIPELINE MODAL (Triggered by Icon-Only Export Button in Top Bar)
     // =========================================================================
     Rectangle {
-        id: drawerBackdrop
+        id: exportModalOverlay
         anchors.fill: parent
-        z: 90
-        visible: infoDrawerOpen
-        opacity: infoDrawerOpen ? 1.0 : 0.0
-        color: Qt.rgba(0, 0, 0, 0.65)
+        z: 9999
+        visible: root.exportModalOpen
+        opacity: visible ? 1.0 : 0.0
+        color: Qt.rgba(0.02, 0.04, 0.08, 0.82)
+        Behavior on opacity { NumberAnimation { duration: 160 } }
+        MouseArea { anchors.fill: parent; onClicked: root.exportModalOpen = false }
 
-        Behavior on opacity { NumberAnimation { duration: 200 } }
+        Rectangle {
+            anchors.centerIn: parent
+            width: 480
+            height: 320
+            radius: 20
+            color: "#0A0F1D"
+            border.width: 1
+            border.color: colViolet
+            clip: true
+            MouseArea { anchors.fill: parent; onClicked: {} }
 
-        MouseArea {
-            anchors.fill: parent
-            onClicked: infoDrawerOpen = false
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 22
+                spacing: 14
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Rectangle {
+                        width: 36; height: 36; radius: 10
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: colViolet }
+                            GradientStop { position: 1.0; color: "#4A00E0" }
+                        }
+                        FAIcon { anchors.centerIn: parent; text: fa.fileExport; font.pixelSize: 14; color: "#FFFFFF" }
+                    }
+                    ColumnLayout {
+                        spacing: 1
+                        Text { text: "EXPORT MODEL PIPELINE"; font.pixelSize: 13; font.bold: true; color: "#FFFFFF" }
+                        Text { text: "Direct 3D export from active SketchUp 2026 session"; font.pixelSize: 10; color: colTextSecondary }
+                    }
+                    Item { Layout.fillWidth: true }
+                    Rectangle {
+                        width: 28; height: 28; radius: 14
+                        color: expCloseM.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05)
+                        FAIcon { anchors.centerIn: parent; text: fa.xmark; font.pixelSize: 10; color: colTextPrimary }
+                        MouseArea { id: expCloseM; anchors.fill: parent; onClicked: root.exportModalOpen = false }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    Repeater {
+                        model: [
+                            { fmt: "obj", name: "Wavefront OBJ", desc: "Meshes + MTL textures", icon: fa.fileExport },
+                            { fmt: "dae", name: "COLLADA DAE", desc: "Digital Asset Exchange", icon: fa.fileExport },
+                            { fmt: "stl", name: "Stereolithography STL", desc: "3D Slicer / Printing", icon: fa.fileExport },
+                            { fmt: "skp", name: "SketchUp SKP", desc: "Native model archive", icon: fa.floppy }
+                        ]
+
+                        Rectangle {
+                            width: 210
+                            height: 70
+                            radius: 12
+                            color: expCardM.containsMouse ? Qt.rgba(139, 92, 246, 0.25) : Qt.rgba(1, 1, 1, 0.04)
+                            border.width: 1
+                            border.color: expCardM.containsMouse ? colViolet : colBorderSubtle
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 10
+
+                                FAIcon { text: modelData.icon; font.pixelSize: 16; color: colViolet }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Text { text: modelData.name; font.pixelSize: 11; font.bold: true; color: "#FFFFFF" }
+                                    Text { text: modelData.desc; font.pixelSize: 9; color: colTextSecondary }
+                                }
+                            }
+
+                            MouseArea {
+                                id: expCardM
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    backend.exportModel(modelData.fmt, "")
+                                    root.exportModalOpen = false
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item { Layout.fillHeight: true }
+            }
         }
     }
 
+    // =========================================================
+    // SLIDE-OVER DRAWER: HOW IT WORKS & CREDITS
+    // =========================================================
     Rectangle {
-        id: drawerPanel
-        z: 100
-        width: Math.min(520, root.width - 40)
+        id: infoDrawerBackdrop
+        anchors.fill: parent
+        z: 900
+        visible: infoDrawerOpen
+        opacity: infoDrawerOpen ? 1.0 : 0.0
+        color: Qt.rgba(0, 0, 0, 0.65)
+        Behavior on opacity { NumberAnimation { duration: 180 } }
+        MouseArea { anchors.fill: parent; onClicked: infoDrawerOpen = false }
+    }
+
+    Rectangle {
+        id: infoDrawerPanel
+        z: 950
+        width: Math.min(460, root.width - 40)
         height: root.height
         x: infoDrawerOpen ? root.width - width : root.width
         color: "#080C16"
         border.width: 1
         border.color: colBorderActive
-
-        Behavior on x { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+        Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 28
-            spacing: 18
+            anchors.margins: 24
+            spacing: 14
 
-            // Drawer Header
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 12
-
+                spacing: 10
                 Rectangle {
-                    width: 36; height: 36; radius: 10
+                    width: 32; height: 32; radius: 8
                     gradient: Gradient {
                         GradientStop { position: 0.0; color: colCyan }
                         GradientStop { position: 1.0; color: colViolet }
                     }
-                    FAIcon { anchors.centerIn: parent; text: fa.info; font.pixelSize: 16; color: "#05070B" }
+                    FAIcon { anchors.centerIn: parent; text: fa.info; font.pixelSize: 14; color: "#05070B" }
                 }
-
                 ColumnLayout {
-                    spacing: 2
-                    Text { text: "HOW IT WORKS & CREDITS"; font.pixelSize: 14; font.bold: true; color: colTextPrimary }
-                    Text { text: "Architecture, direct sync, and project information"; font.pixelSize: 11; color: colTextSecondary }
+                    spacing: 1
+                    Text { text: "HOW IT WORKS & CREDITS"; font.pixelSize: 13; font.bold: true; color: colTextPrimary }
+                    Text { text: "Direct SketchUp 2026 procedural engine"; font.pixelSize: 10; color: colTextSecondary }
                 }
-
                 Item { Layout.fillWidth: true }
-
                 Rectangle {
-                    width: 32; height: 32; radius: 8
-                    color: drwCloseM.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05)
-                    border.width: 1; border.color: colBorderLight
-                    FAIcon { anchors.centerIn: parent; text: fa.xmark; font.pixelSize: 13; color: colTextPrimary }
-                    MouseArea {
-                        id: drwCloseM
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: infoDrawerOpen = false
-                    }
+                    width: 28; height: 28; radius: 14
+                    color: idCloseM.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05)
+                    FAIcon { anchors.centerIn: parent; text: fa.xmark; font.pixelSize: 10; color: colTextPrimary }
+                    MouseArea { id: idCloseM; anchors.fill: parent; onClicked: infoDrawerOpen = false }
                 }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: colBorderLight }
+            Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
 
-            // Scrollable Info Area
-            Flickable {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                contentHeight: drwCol.implicitHeight
-                clip: true
-
+            ScrollView {
+                Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                 ColumnLayout {
-                    id: drwCol
-                    width: parent.width
-                    spacing: 16
+                    width: parent.width; spacing: 12
+                    Text { text: "1. 150 Parametric Shapes Library"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                    Text { text: "Catalog of 150 procedural shapes across Architecture, Stairs, Columns, Steel, Roofs, Primitives, Furniture, and Landscape. Every shape has dedicated visual sliders and a live 2.5D preview."; font.pixelSize: 10; color: colTextSecondary; wrapMode: Text.Wrap; Layout.fillWidth: true }
 
-                    // 1-Click Auto Setup Card
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: setupCardCol.implicitHeight + 28
-                        radius: 14
-                        color: Qt.rgba(0, 0.95, 1, 0.08)
-                        border.width: 1
-                        border.color: colCyan
+                    Text { text: "2. Zero-Ruby Assumption"; font.pixelSize: 11; font.bold: true; color: colViolet }
+                    Text { text: "No coding or Ruby knowledge is required. You adjust intuitive sliders and steppers, and the internal SketchUp API bridge automatically generates valid 3D geometry wrapped in an undo operation."; font.pixelSize: 10; color: colTextSecondary; wrapMode: Text.Wrap; Layout.fillWidth: true }
 
-                        ColumnLayout {
-                            id: setupCardCol
-                            anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 10
-
-                            RowLayout {
-                                spacing: 8
-                                FAIcon { text: fa.bolt; font.pixelSize: 14; color: colCyan }
-                                Text { text: "1-CLICK SKETCHUP AUTO-SETUP"; font.pixelSize: 12; font.bold: true; color: "#FFFFFF" }
-                            }
-
-                            Text {
-                                text: "Instantly installs and activates the controller plugin in SketchUp (macOS or Windows). No file moving or terminal required."
-                                font.pixelSize: 11
-                                color: colTextSecondary
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 38
-                                radius: 10
-                                gradient: Gradient {
-                                    GradientStop { position: 0.0; color: colCyan }
-                                    GradientStop { position: 1.0; color: colViolet }
-                                }
-                                RowLayout {
-                                    anchors.centerIn: parent
-                                    spacing: 8
-                                    FAIcon { text: fa.bolt; font.pixelSize: 12; color: "#05070B" }
-                                    Text { text: "Auto-Setup Plugin into SketchUp Now"; font.pixelSize: 11; font.bold: true; color: "#05070B" }
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: backend.autoSetupPlugin()
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: colBorderLight }
-
-                    RowLayout {
-                        spacing: 8
-                        FAIcon { text: fa.bolt; font.pixelSize: 12; color: colCyan }
-                        Text { text: "HOW THE SYSTEM OPERATES"; font.pixelSize: 12; font.bold: true; color: colCyan; font.letterSpacing: 1.0 }
-                    }
-
-                    Repeater {
-                        model: [
-                            { title: "1. Local Ruby Bridge Server", desc: "A non-blocking HTTP REST daemon runs inside SketchUp 2026 on 127.0.0.1:9876. It automatically boots whenever SketchUp opens." },
-                            { title: "2. Real-Time Viewport Sync", desc: "Adjusting sliders or triggering presets dispatches JSON to SketchUp. Geometry is generated procedurally in milliseconds with clean manifold solids." },
-                            { title: "3. Full Native Undo (Ctrl+Z / Cmd+Z)", desc: "Every single action is wrapped in a native SketchUp undo transaction. You can undo or redo anything at any time inside the 3D model." },
-                            { title: "4. Direct 1-Click Exporter", desc: "Export scenes to OBJ, STL (3D Printing), DAE (Blender/Unity), or high-res 4K PNG renders with no intermediate popups." },
-                            { title: "5. Optional AI Model Context Protocol (MCP)", desc: "The included sketchup_mcp.py server connects directly to Claude Desktop or Cursor to drive SketchUp using natural language." }
-                        ]
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: rCol.implicitHeight + 20
-                            radius: 12
-                            color: Qt.rgba(1, 1, 1, 0.04)
-                            border.width: 1
-                            border.color: colBorderLight
-
-                            RowLayout {
-                                id: rCol
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                spacing: 10
-
-                                Rectangle {
-                                    width: 8; height: 8; radius: 4
-                                    color: colCyan
-                                    Layout.alignment: Qt.AlignTop
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    Text {
-                                        text: modelData.title
-                                        font.pixelSize: 12
-                                        font.bold: true
-                                        color: colTextPrimary
-                                    }
-                                    Text {
-                                        text: modelData.desc
-                                        font.pixelSize: 11
-                                        color: colTextSecondary
-                                        wrapMode: Text.WordWrap
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: colBorderLight }
-
-                    RowLayout {
-                        spacing: 8
-                        FAIcon { text: fa.gem; font.pixelSize: 12; color: colViolet }
-                        Text { text: "CREDITS & TECHNICAL STACK"; font.pixelSize: 12; font.bold: true; color: colViolet; font.letterSpacing: 1.0 }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: credCol.implicitHeight + 24
-                        radius: 12
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: colBorderLight
-
-                        ColumnLayout {
-                            id: credCol
-                            anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 8
-
-                            RowLayout {
-                                Text { text: "Author / Developer:"; font.pixelSize: 11; color: colTextSecondary; Layout.preferredWidth: 140 }
-                                Text { text: "Mohamed Amraoui (@amraoui-mo7amed)"; font.pixelSize: 11; font.bold: true; color: colCyan }
-                            }
-                            RowLayout {
-                                Text { text: "UI Framework:"; font.pixelSize: 11; color: colTextSecondary; Layout.preferredWidth: 140 }
-                                Text { text: "PySide6 / Qt Quick QML (Spatial Liquid Glass)"; font.pixelSize: 11; font.bold: true; color: colTextPrimary }
-                            }
-                            RowLayout {
-                                Text { text: "CAD Integration:"; font.pixelSize: 11; color: colTextSecondary; Layout.preferredWidth: 140 }
-                                Text { text: "SketchUp 2026 Ruby C API Bridge"; font.pixelSize: 11; font.bold: true; color: colTextPrimary }
-                            }
-                            RowLayout {
-                                Text { text: "AI Protocol:"; font.pixelSize: 11; color: colTextSecondary; Layout.preferredWidth: 140 }
-                                Text { text: "Model Context Protocol (FastMCP 2.x)"; font.pixelSize: 11; font.bold: true; color: colEmerald }
-                            }
-                            RowLayout {
-                                Text { text: "Repository:"; font.pixelSize: 11; color: colTextSecondary; Layout.preferredWidth: 140 }
-                                Text { text: "github.com/amraoui-mo7amed/sketchup-controller"; font.pixelSize: 11; color: colCyan }
-                            }
-                        }
-                    }
+                    Text { text: "3. 1-Click Auto Setup"; font.pixelSize: 11; font.bold: true; color: colEmerald }
+                    Text { text: "Auto-detects your SketchUp Plugins folder (macOS & Windows) and installs the connector plugin with one click."; font.pixelSize: 10; color: colTextSecondary; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
             }
 
             Rectangle {
-                Layout.fillWidth: true; height: 42; radius: 10
+                Layout.fillWidth: true; height: 36; radius: 8
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: colCyan }
                     GradientStop { position: 1.0; color: colViolet }
                 }
-                Text { anchors.centerIn: parent; text: "Close Guide"; font.pixelSize: 12; font.bold: true; color: "#05070B" }
-                MouseArea {
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: infoDrawerOpen = false
-                }
+                Text { anchors.centerIn: parent; text: "Close Guide"; font.pixelSize: 11; font.bold: true; color: "#05070B" }
+                MouseArea { anchors.fill: parent; onClicked: infoDrawerOpen = false }
             }
         }
     }
@@ -1793,21 +1738,20 @@ ApplicationWindow {
         id: toast
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: toastVisible ? 24 : -60
-        width: Math.min(toastRow.implicitWidth + 40, root.width - 48)
-        height: 40
-        radius: 20
+        anchors.bottomMargin: toastVisible ? 20 : -50
+        width: Math.min(toastRow.implicitWidth + 30, root.width - 40)
+        height: 34
+        radius: 17
         z: 99
         color: toastSuccess ? Qt.rgba(0.06, 0.72, 0.50, 0.95) : Qt.rgba(0.94, 0.27, 0.27, 0.95)
-
-        Behavior on anchors.bottomMargin { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+        Behavior on anchors.bottomMargin { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
 
         RowLayout {
             id: toastRow
             anchors.centerIn: parent
-            spacing: 8
-            FAIcon { text: toastSuccess ? fa.check : fa.warning; font.pixelSize: 13; color: "#FFFFFF" }
-            Text { text: toastText; font.pixelSize: 11; font.bold: true; color: "#FFFFFF" }
+            spacing: 6
+            FAIcon { text: toastSuccess ? fa.check : fa.warning; font.pixelSize: 11; color: "#FFFFFF" }
+            Text { text: toastText; font.pixelSize: 10; font.bold: true; color: "#FFFFFF" }
         }
     }
 }

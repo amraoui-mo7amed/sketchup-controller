@@ -1,4 +1,5 @@
 import sys
+import json
 import threading
 import httpx
 from PySide6.QtCore import QObject, Signal, Slot, Property, QTimer
@@ -176,6 +177,19 @@ class Backend(QObject):
                 "style": style
             },
             f"Stairs ({style.capitalize()}, {steps} steps)"
+        )
+
+    @Slot(str, str)
+    def createParametricShape(self, shape_id, params_json):
+        try:
+            params = json.loads(params_json) if isinstance(params_json, str) else params_json
+        except Exception:
+            params = {}
+        friendly_name = shape_id.replace("_", " ").title()
+        self._send_action(
+            "/api/design/shape",
+            {"shape_id": shape_id, "params": params},
+            f"Created {friendly_name}"
         )
 
     @Slot()

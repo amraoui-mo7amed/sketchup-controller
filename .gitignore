@@ -5,8 +5,10 @@ __pycache__/
 build/
 dist/
 *.spec
+!LiquidCADStudio.spec
 .DS_Store
 *.log
 *.zip
 *.dmg
 dmg_staging/
+desktop-app/*clean_ui*.py
