@@ -26,6 +26,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install PySide6 httpx pillow pyinstaller
 
+      - name: Generate Application Icons
+        run: |
+          python generate_icons.py
+
       - name: Build macOS Application with PyInstaller
         run: |
           pyinstaller \
@@ -44,24 +48,14 @@ jobs:
       - name: Package macOS .app into ZIP
         run: |
           cd dist
-          zip -r -y ../LiquidCADStudio-macOS.zip LiquidCADStudio.app
+          zip -r ../LiquidCADStudio-macOS.zip LiquidCADStudio.app
           cd ..
 
-      - name: Create macOS .dmg Installer
-        run: |
-          mkdir -p dmg_staging
-          cp -R dist/LiquidCADStudio.app dmg_staging/
-          ln -s /Applications dmg_staging/Applications
-          hdiutil create -volname "LiquidCADStudio" -srcfolder dmg_staging -ov -format UDZO LiquidCADStudio-macOS.dmg
-          rm -rf dmg_staging
-
-      - name: Upload macOS Artifacts
+      - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-binaries
-          path: |
-            LiquidCADStudio-macOS.dmg
-            LiquidCADStudio-macOS.zip
+          name: LiquidCADStudio-macOS
+          path: LiquidCADStudio-macOS.zip
 
   build-windows:
     runs-on: windows-latest
@@ -79,12 +73,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install PySide6 httpx pillow pyinstaller
 
-      - name: Build Windows Standalone Executable (.exe)
+      - name: Generate Application Icons
+        run: |
+          python generate_icons.py
+
+      - name: Build Windows Executable with PyInstaller
         run: |
           pyinstaller `
             --name "LiquidCADStudio" `
             --windowed `
-            --onefile `
             --noconfirm `
             --icon "desktop-app/assets/icon.ico" `
             --add-data "desktop-app/main.qml;desktop-app" `
@@ -95,18 +92,15 @@ jobs:
             --hidden-import "httpx" `
             desktop-app/main.py
 
-      - name: Prepare Windows Release Files
+      - name: Package Windows Binary into ZIP
         run: |
-          Copy-Item dist\LiquidCADStudio.exe -Destination LiquidCADStudio-Windows.exe
-          Compress-Archive -Path dist\LiquidCADStudio.exe -DestinationPath LiquidCADStudio-Windows.zip
+          Compress-Archive -Path dist\LiquidCADStudio -DestinationPath LiquidCADStudio-Windows.zip
 
-      - name: Upload Windows Artifacts
+      - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-binaries
-          path: |
-            LiquidCADStudio-Windows.exe
-            LiquidCADStudio-Windows.zip
+          name: LiquidCADStudio-Windows
+          path: LiquidCADStudio-Windows.zip
 
   release:
     needs: [build-macos, build-windows]
@@ -115,26 +109,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download macOS Artifacts
+      - name: Download macOS Artifact
         uses: actions/download-artifact@v4
         with:
-          name: macos-binaries
+          name: LiquidCADStudio-macOS
 
-      - name: Download Windows Artifacts
+      - name: Download Windows Artifact
         uses: actions/download-artifact@v4
         with:
-          name: windows-binaries
+          name: LiquidCADStudio-Windows
 
-      - name: Publish to GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          name: LiquidCADStudio v1.0.0
+          name: LiquidCADStudio ${{ github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
             LiquidCADStudio-macOS.dmg
-            LiquidCADStudio-macOS.zip
             LiquidCADStudio-Windows.exe
-            LiquidCADStudio-Windows.zip
