@@ -37,25 +37,29 @@ jobs:
             --windowed \
             --noconfirm \
             --icon "desktop-app/assets/icon.icns" \
+            --add-data "desktop-app/main.qml:." \
             --add-data "desktop-app/main.qml:desktop-app" \
+            --add-data "desktop-app/assets:assets" \
             --add-data "desktop-app/assets:desktop-app/assets" \
             --hidden-import "PySide6.QtQuick" \
             --hidden-import "PySide6.QtQml" \
             --hidden-import "PySide6.QtQuickControls2" \
+            --hidden-import "PySide6.QtNetwork" \
             --hidden-import "httpx" \
             desktop-app/main.py
 
-      - name: Package macOS .app into ZIP
+      - name: Package macOS Application into DMG
         run: |
-          cd dist
-          zip -r ../LiquidCADStudio-macOS.zip LiquidCADStudio.app
-          cd ..
+          mkdir -p dmg_staging
+          cp -R dist/LiquidCADStudio.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "LiquidCADStudio" -srcfolder dmg_staging -ov -format UDZO LiquidCADStudio-macOS.dmg
 
-      - name: Upload macOS Artifact
+      - name: Upload macOS DMG Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LiquidCADStudio-macOS
-          path: LiquidCADStudio-macOS.zip
+          path: LiquidCADStudio-macOS.dmg
 
   build-windows:
     runs-on: windows-latest
@@ -77,30 +81,35 @@ jobs:
         run: |
           python generate_icons.py
 
-      - name: Build Windows Executable with PyInstaller
+      - name: Build Windows Standalone Executable (.exe)
         run: |
           pyinstaller `
-            --name "LiquidCADStudio" `
+            --name "LiquidCADStudio-Windows" `
+            --onefile `
             --windowed `
             --noconfirm `
             --icon "desktop-app/assets/icon.ico" `
+            --add-data "desktop-app/main.qml;." `
             --add-data "desktop-app/main.qml;desktop-app" `
+            --add-data "desktop-app/assets;assets" `
             --add-data "desktop-app/assets;desktop-app/assets" `
             --hidden-import "PySide6.QtQuick" `
             --hidden-import "PySide6.QtQml" `
             --hidden-import "PySide6.QtQuickControls2" `
+            --hidden-import "PySide6.QtNetwork" `
             --hidden-import "httpx" `
+            --collect-all "PySide6" `
             desktop-app/main.py
 
-      - name: Package Windows Binary into ZIP
+      - name: Copy Windows Executable for Release
         run: |
-          Compress-Archive -Path dist\LiquidCADStudio -DestinationPath LiquidCADStudio-Windows.zip
+          Copy-Item dist\LiquidCADStudio-Windows.exe -Destination LiquidCADStudio-Windows.exe
 
-      - name: Upload Windows Artifact
+      - name: Upload Windows Executable Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LiquidCADStudio-Windows
-          path: LiquidCADStudio-Windows.zip
+          path: LiquidCADStudio-Windows.exe
 
   release:
     needs: [build-macos, build-windows]
@@ -119,7 +128,7 @@ jobs:
         with:
           name: LiquidCADStudio-Windows
 
-      - name: Create GitHub Release
+      - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: LiquidCADStudio ${{ github.ref_name }}

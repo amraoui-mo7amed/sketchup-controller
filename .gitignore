@@ -7,3 +7,6 @@ dist/
 *.spec
 .DS_Store
 *.log
+*.zip
+*.dmg
+dmg_staging/

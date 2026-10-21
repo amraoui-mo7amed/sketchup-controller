@@ -252,6 +252,31 @@ ApplicationWindow {
                         onClicked: backend.refresh()
                     }
                 }
+
+                // Info & Credits Glass Button (Icon-Only)
+                Rectangle {
+                    width: 38
+                    height: 38
+                    radius: 12
+                    color: infoBtnMouse.containsMouse ? Qt.rgba(0.0, 0.94, 1.0, 0.22) : Qt.rgba(1, 1, 1, 0.06)
+                    border.width: 1
+                    border.color: infoBtnMouse.containsMouse ? colCyanGlow : colGlassBorder
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "ℹ"
+                        font.pixelSize: 16
+                        font.bold: true
+                        color: infoBtnMouse.containsMouse ? colCyanGlow : colTextPrimary
+                    }
+                    MouseArea {
+                        id: infoBtnMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: infoModal.visible = true
+                    }
+                }
             }
         }
 
@@ -1063,6 +1088,235 @@ ApplicationWindow {
                 font.pixelSize: 12
                 font.bold: true
                 color: "#FFFFFF"
+            }
+        }
+    }
+
+    // =========================================================================
+    // HOW IT WORKS & CREDITS MODAL (Liquid Glass Overlay)
+    // =========================================================================
+    Rectangle {
+        id: infoModal
+        anchors.fill: parent
+        z: 100
+        visible: false
+        color: Qt.rgba(0.03, 0.05, 0.09, 0.82)
+
+        MouseArea {
+            anchors.fill: parent
+            // Prevent clicks from passing through
+            onClicked: {}
+        }
+
+        Rectangle {
+            id: infoCard
+            anchors.centerIn: parent
+            width: Math.min(680, root.width - 48)
+            height: Math.min(560, root.height - 48)
+            radius: 22
+            color: Qt.rgba(0.07, 0.11, 0.20, 0.95)
+            border.width: 1
+            border.color: colGlassBorderHighlight
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 28
+                spacing: 16
+
+                // Header
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    Rectangle {
+                        width: 36
+                        height: 36
+                        radius: 10
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: colCyanGlow }
+                            GradientStop { position: 1.0; color: colVioletGlow }
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            text: "ℹ"
+                            font.pixelSize: 18
+                            font.bold: true
+                            color: "#080B11"
+                        }
+                    }
+
+                    ColumnLayout {
+                        spacing: 2
+                        Text {
+                            text: "HOW LIQUID CAD WORKS & CREDITS"
+                            font.pixelSize: 14
+                            font.bold: true
+                            font.letterSpacing: 1.1
+                            color: colTextPrimary
+                        }
+                        Text {
+                            text: "Architecture, direct CAD synchronization, and project information"
+                            font.pixelSize: 11
+                            color: colTextSecondary
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    // Close Button (✕)
+                    Rectangle {
+                        width: 32
+                        height: 32
+                        radius: 10
+                        color: closeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05)
+                        border.width: 1
+                        border.color: colGlassBorder
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "✕"
+                            font.pixelSize: 14
+                            color: colTextPrimary
+                        }
+                        MouseArea {
+                            id: closeMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: infoModal.visible = false
+                        }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: colGlassBorder }
+
+                // Scrollable Content
+                Flickable {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentHeight: contentCol.height
+                    clip: true
+
+                    ColumnLayout {
+                        id: contentCol
+                        width: parent.width
+                        spacing: 16
+
+                        // Section 1: How It Works
+                        Text {
+                            text: "⚡ HOW THE SYSTEM OPERATES"
+                            font.pixelSize: 12
+                            font.bold: true
+                            font.letterSpacing: 1.0
+                            color: colCyanGlow
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Repeater {
+                                model: [
+                                    { step: "1. Local Ruby Bridge", desc: "A non-blocking HTTP REST daemon runs automatically inside SketchUp 2026 on port 9876. It requires zero configuration." },
+                                    { step: "2. Real-Time Viewport Sync", desc: "Moving sliders or triggering presets dispatches JSON to SketchUp. Geometry is generated instantly in milliseconds with clean manifold topology." },
+                                    { step: "3. Full Native Undo (Ctrl+Z / Cmd+Z)", desc: "Every operation is grouped into SketchUp's undo stack, allowing full rollback and redo inside the 3D model." },
+                                    { step: "4. Direct 1-Click Exporter", desc: "Exports scenes to OBJ, STL (3D Printing), DAE (Blender/Unity), or high-res 4K PNG renders with no intermediate popups." },
+                                    { step: "5. Optional AI Model Context Protocol (MCP)", desc: "The included FastMCP server (sketchup_mcp.py) lets you connect Claude Desktop or Cursor to drive SketchUp using natural language." }
+                                ]
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: stepText.height + 18
+                                    radius: 10
+                                    color: Qt.rgba(1, 1, 1, 0.04)
+                                    border.width: 1
+                                    border.color: Qt.rgba(1, 1, 1, 0.08)
+
+                                    RowLayout {
+                                        id: stepText
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 12
+
+                                        Rectangle {
+                                            width: 6
+                                            height: 6
+                                            radius: 3
+                                            color: colCyanGlow
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text { text: modelData.step; font.pixelSize: 11; font.bold: true; color: colTextPrimary }
+                                            Text { text: modelData.desc; font.pixelSize: 10; color: colTextSecondary; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: colGlassBorder }
+
+                        // Section 2: Credits
+                        Text {
+                            text: "💎 CREDITS & SYSTEM SPECIFICATIONS"
+                            font.pixelSize: 12
+                            font.bold: true
+                            font.letterSpacing: 1.0
+                            color: colVioletGlow
+                        }
+
+                        GridLayout {
+                            columns: 2
+                            rowSpacing: 8
+                            columnSpacing: 14
+                            Layout.fillWidth: true
+
+                            Text { text: "Author / Developer:"; font.pixelSize: 11; color: colTextSecondary }
+                            Text { text: "Mohamed Amraoui (@amraoui-mo7amed)"; font.pixelSize: 11; font.bold: true; color: colTextPrimary }
+
+                            Text { text: "UI Framework:"; font.pixelSize: 11; color: colTextSecondary }
+                            Text { text: "PySide6 (Qt 6 Quick / QML) Liquid Light Glass"; font.pixelSize: 11; font.bold: true; color: colCyanGlow }
+
+                            Text { text: "CAD Integration:"; font.pixelSize: 11; color: colTextSecondary }
+                            Text { text: "SketchUp 2026 Ruby C API Bridge"; font.pixelSize: 11; font.bold: true; color: colTextPrimary }
+
+                            Text { text: "AI Protocol:"; font.pixelSize: 11; color: colTextSecondary }
+                            Text { text: "Model Context Protocol (FastMCP 2.x)"; font.pixelSize: 11; font.bold: true; color: colEmeraldGlow }
+
+                            Text { text: "Repository:"; font.pixelSize: 11; color: colTextSecondary }
+                            Text { text: "github.com/amraoui-mo7amed/sketchup-controller"; font.pixelSize: 11; color: colCyanGlow }
+                        }
+                    }
+                }
+
+                // Bottom Dismiss Action
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 42
+                    radius: 12
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: dismissMouse.containsMouse ? "#2DFEFF" : colCyanGlow }
+                        GradientStop { position: 1.0; color: dismissMouse.containsMouse ? "#7928CA" : "#4A00E0" }
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Close Guide"
+                        font.pixelSize: 12
+                        font.bold: true
+                        color: "#FFFFFF"
+                    }
+
+                    MouseArea {
+                        id: dismissMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: infoModal.visible = false
+                    }
+                }
             }
         }
     }
