@@ -127,6 +127,97 @@ module SketchUpController
       { status: 'error', message: e.message }
     end
 
+    def self.create_stairs(params)
+      model = Sketchup.active_model
+      entities = model.active_entities
+
+      steps = (params['steps'] || 14).to_i
+      steps = 2 if steps < 2
+      steps = 100 if steps > 100
+
+      width = (params['width'] || 1.0).to_f.m
+      tread = (params['tread'] || params['run'] || 0.28).to_f.m
+      riser = (params['riser'] || params['rise'] || 0.18).to_f.m
+      style = (params['style'] || 'solid').to_s.downcase
+
+      model.start_operation('Create Parametric Stairs', true)
+      group = entities.add_group
+      group.name = "Stairs (#{style.capitalize}) #{Time.now.strftime('%H:%M:%S')}"
+      gentities = group.entities
+
+      case style
+      when 'spiral'
+        radius = (params['radius'] || 1.20).to_f.m
+        inner_r = (params['inner_radius'] || 0.15).to_f.m
+        angle_deg = (params['angle_step'] || 20.0).to_f
+        angle_rad = angle_deg.degrees
+
+        # Central support column
+        total_h = steps * riser
+        col_circle = gentities.add_circle(Geom::Point3d.new(0, 0, 0), Geom::Vector3d.new(0, 0, 1), inner_r, 24)
+        col_face = gentities.add_face(col_circle)
+        col_face.pushpull(-total_h) if col_face
+
+        # Helical steps
+        steps.times do |i|
+          a1 = i * angle_rad
+          a2 = (i + 1) * angle_rad
+          z  = i * riser
+
+          pts = [
+            Geom::Point3d.new(inner_r * Math.cos(a1), inner_r * Math.sin(a1), z),
+            Geom::Point3d.new(radius * Math.cos(a1), radius * Math.sin(a1), z),
+            Geom::Point3d.new(radius * Math.cos(a2), radius * Math.sin(a2), z),
+            Geom::Point3d.new(inner_r * Math.cos(a2), inner_r * Math.sin(a2), z)
+          ]
+          step_face = gentities.add_face(pts)
+          step_face.pushpull(-riser) if step_face
+        end
+
+      when 'floating'
+        tread_thick = (params['tread_thickness'] || 0.05).to_f.m
+        steps.times do |i|
+          x0 = 0
+          x1 = width
+          y0 = i * tread
+          y1 = (i + 1) * tread
+          z  = (i + 1) * riser
+
+          pts = [
+            Geom::Point3d.new(x0, y0, z),
+            Geom::Point3d.new(x1, y0, z),
+            Geom::Point3d.new(x1, y1, z),
+            Geom::Point3d.new(x0, y1, z)
+          ]
+          step_face = gentities.add_face(pts)
+          step_face.pushpull(tread_thick) if step_face
+        end
+
+      else # 'solid' monolithic
+        profile = [Geom::Point3d.new(0, 0, 0)]
+        steps.times do |i|
+          profile << Geom::Point3d.new(0, i * tread, (i + 1) * riser)
+          profile << Geom::Point3d.new(0, (i + 1) * tread, (i + 1) * riser)
+        end
+        profile << Geom::Point3d.new(0, steps * tread, 0)
+        face = gentities.add_face(profile)
+        face.pushpull(-width) if face
+      end
+
+      model.commit_operation
+      {
+        status: 'success',
+        type: 'stairs',
+        style: style,
+        steps: steps,
+        total_height_m: (steps * riser).to_m.round(3),
+        total_length_m: (steps * tread).to_m.round(3)
+      }
+    rescue => e
+      model.abort_operation if model
+      { status: 'error', message: e.message }
+    end
+
     def self.clear_entities
       model = Sketchup.active_model
       model.start_operation('Clear All Entities', true)

@@ -164,6 +164,20 @@ class Backend(QObject):
             f"Column (r={r}m, h={h}m)"
         )
 
+    @Slot(int, float, float, float, str)
+    def createStairs(self, steps, width, tread, riser, style):
+        self._send_action(
+            "/api/design/stairs",
+            {
+                "steps": steps,
+                "width": width,
+                "tread": tread,
+                "riser": riser,
+                "style": style
+            },
+            f"Stairs ({style.capitalize()}, {steps} steps)"
+        )
+
     @Slot()
     def clearModel(self):
         self._send_action("/api/design/clear", {}, "Clear Entities")

@@ -92,6 +92,7 @@ ApplicationWindow {
         readonly property string polygon: "\uf5ee"
         readonly property string trash: "\uf2ed"
         readonly property string plus: "\uf067"
+        readonly property string stairs: "\uf550"
     }
 
     component FAIcon: Text {
@@ -197,11 +198,12 @@ ApplicationWindow {
                 Repeater {
                     model: [
                         { icon: fa.house, label: "Rooms", id: 0 },
-                        { icon: fa.cubes, label: "Solids", id: 1 },
-                        { icon: fa.camera, label: "Camera", id: 2 },
-                        { icon: fa.fileExport, label: "Export", id: 3 },
-                        { icon: fa.chart, label: "Stats", id: 4 },
-                        { icon: fa.terminal, label: "Ruby", id: 5 }
+                        { icon: fa.stairs, label: "Stairs", id: 1 },
+                        { icon: fa.cubes, label: "Solids", id: 2 },
+                        { icon: fa.camera, label: "Camera", id: 3 },
+                        { icon: fa.fileExport, label: "Export", id: 4 },
+                        { icon: fa.chart, label: "Stats", id: 5 },
+                        { icon: fa.terminal, label: "Ruby", id: 6 }
                     ]
 
                     Rectangle {
@@ -332,11 +334,12 @@ ApplicationWindow {
                             text: {
                                 switch (activeNav) {
                                 case 0: return "PARAMETRIC ARCHITECTURE"
-                                case 1: return "3D SOLIDS & MASSING"
-                                case 2: return "VIEWPORT CAMERA RIG"
-                                case 3: return "EXPORT STUDIO PIPELINE"
-                                case 4: return "MODEL TELEMETRY"
-                                case 5: return "RUBY SCRIPT TERMINAL"
+                                case 1: return "PARAMETRIC STAIR STUDIO"
+                                case 2: return "3D SOLIDS & MASSING"
+                                case 3: return "VIEWPORT CAMERA RIG"
+                                case 4: return "EXPORT STUDIO PIPELINE"
+                                case 5: return "MODEL TELEMETRY"
+                                case 6: return "RUBY SCRIPT TERMINAL"
                                 default: return "STUDIO"
                                 }
                             }
@@ -720,7 +723,361 @@ ApplicationWindow {
                     }
 
                     // =========================================================
-                    // VIEW 1: 3D SOLIDS & MASSING
+                    // VIEW 1: PARAMETRIC STAIRS STUDIO
+                    // =========================================================
+                    RowLayout {
+                        id: stairsView
+                        spacing: 20
+
+                        property string stStyle: "solid"
+
+                        // Parameter Controls Card
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 18
+                            color: colGlassCard
+                            border.width: 1
+                            border.color: colBorderLight
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 20
+                                spacing: 12
+
+                                // Title & Style Picker
+                                RowLayout {
+                                    spacing: 10
+                                    Text { text: "STAIR ARCHITECTURE"; font.pixelSize: 13; font.bold: true; color: colCyan }
+                                    Item { Layout.fillWidth: true }
+
+                                    Repeater {
+                                        model: [
+                                            { id: "solid", label: "Solid" },
+                                            { id: "floating", label: "Floating" },
+                                            { id: "spiral", label: "Spiral" }
+                                        ]
+                                        Rectangle {
+                                            property bool isPick: stairsView.stStyle === modelData.id
+                                            width: stTypTxt.implicitWidth + 16
+                                            height: 24
+                                            radius: 12
+                                            color: isPick ? Qt.rgba(0, 0.95, 1, 0.25) : (stTypM.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                                            border.width: 1
+                                            border.color: isPick ? colCyan : colBorderLight
+
+                                            Text {
+                                                id: stTypTxt
+                                                anchors.centerIn: parent
+                                                text: modelData.label
+                                                font.pixelSize: 10
+                                                font.bold: parent.isPick
+                                                color: parent.isPick ? colCyan : colTextSecondary
+                                            }
+                                            MouseArea {
+                                                id: stTypM
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    stairsView.stStyle = modelData.id
+                                                    stairCanvas.requestPaint()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Quick Presets Bar
+                                RowLayout {
+                                    spacing: 8
+                                    Text { text: "Presets:"; font.pixelSize: 11; color: colTextSecondary }
+
+                                    Repeater {
+                                        model: [
+                                            { label: "Residential (15 steps)", steps: 15, w: 1.0, t: 0.28, r: 0.18, style: "solid" },
+                                            { label: "Modern Floating (14 steps)", steps: 14, w: 1.1, t: 0.29, r: 0.17, style: "floating" },
+                                            { label: "Compact Spiral (18 steps)", steps: 18, w: 1.2, t: 0.26, r: 0.18, style: "spiral" }
+                                        ]
+
+                                        Rectangle {
+                                            width: stChpTxt.implicitWidth + 18
+                                            height: 26
+                                            radius: 13
+                                            color: stChpM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.22) : Qt.rgba(1, 1, 1, 0.08)
+                                            border.width: 1
+                                            border.color: colBorderLight
+                                            Text {
+                                                id: stChpTxt
+                                                anchors.centerIn: parent
+                                                text: modelData.label
+                                                font.pixelSize: 10
+                                                font.bold: true
+                                                color: colTextPrimary
+                                            }
+                                            MouseArea {
+                                                id: stChpM
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    stSteps.value = modelData.steps
+                                                    stWidth.value = modelData.w
+                                                    stTread.value = modelData.t
+                                                    stRiser.value = modelData.r
+                                                    stairsView.stStyle = modelData.style
+                                                    stairCanvas.requestPaint()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Sliders
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    RowLayout {
+                                        Text { text: "Number of Steps:"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: stSteps.value.toFixed(0) + " steps"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                    }
+                                    Slider { id: stSteps; Layout.fillWidth: true; from: 3; to: 32; value: 15; stepSize: 1; onValueChanged: stairCanvas.requestPaint() }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    RowLayout {
+                                        Text { text: "Stair Width:"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: stWidth.value.toFixed(2) + " m"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                    }
+                                    Slider { id: stWidth; Layout.fillWidth: true; from: 0.60; to: 2.80; value: 1.00; stepSize: 0.1; onValueChanged: stairCanvas.requestPaint() }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    RowLayout {
+                                        Text { text: "Tread Depth (Run):"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: (stTread.value * 100).toFixed(0) + " cm"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                    }
+                                    Slider { id: stTread; Layout.fillWidth: true; from: 0.20; to: 0.38; value: 0.28; stepSize: 0.01; onValueChanged: stairCanvas.requestPaint() }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    RowLayout {
+                                        Text { text: "Riser Height (Rise):"; font.pixelSize: 11; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: (stRiser.value * 100).toFixed(1) + " cm"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                    }
+                                    Slider { id: stRiser; Layout.fillWidth: true; from: 0.14; to: 0.22; value: 0.18; stepSize: 0.005; onValueChanged: stairCanvas.requestPaint() }
+                                }
+
+                                // Ergonomic Metrics Telemetry Card
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 38
+                                    radius: 10
+                                    color: Qt.rgba(1, 1, 1, 0.04)
+                                    border.width: 1
+                                    border.color: colBorderLight
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 12
+                                        anchors.rightMargin: 12
+                                        spacing: 14
+
+                                        RowLayout {
+                                            spacing: 4
+                                            Text { text: "Total Rise:"; font.pixelSize: 10; color: colTextSecondary }
+                                            Text { text: (stSteps.value * stRiser.value).toFixed(2) + " m"; font.pixelSize: 11; font.bold: true; color: colCyan }
+                                        }
+                                        RowLayout {
+                                            spacing: 4
+                                            Text { text: "Total Run:"; font.pixelSize: 10; color: colTextSecondary }
+                                            Text { text: (stSteps.value * stTread.value).toFixed(2) + " m"; font.pixelSize: 11; font.bold: true; color: colViolet }
+                                        }
+                                        RowLayout {
+                                            spacing: 4
+                                            Text { text: "Incline:"; font.pixelSize: 10; color: colTextSecondary }
+                                            Text { text: (Math.atan(stRiser.value / stTread.value) * 180 / Math.PI).toFixed(1) + "°"; font.pixelSize: 11; font.bold: true; color: colEmerald }
+                                        }
+                                    }
+                                }
+
+                                // Build Action Button
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 46
+                                    radius: 14
+                                    gradient: Gradient {
+                                        GradientStop { position: 0.0; color: stBtnM.containsMouse ? "#2DFEFF" : colCyan }
+                                        GradientStop { position: 1.0; color: "#4A00E0" }
+                                    }
+
+                                    RowLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 8
+                                        FAIcon { text: fa.bolt; font.pixelSize: 14; color: "#FFFFFF" }
+                                        Text {
+                                            text: "BUILD STAIRS IN SKETCHUP"
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                            font.letterSpacing: 1.0
+                                            color: "#FFFFFF"
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: stBtnM
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.createStairs(stSteps.value, stWidth.value, stTread.value, stRiser.value, stairsView.stStyle)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Live 2.5D Isometric Stair Schematic
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 18
+                            color: colGlassCard
+                            border.width: 1
+                            border.color: colBorderLight
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 20
+                                spacing: 10
+
+                                RowLayout {
+                                    Text { text: "LIVE STAIR PROFILE"; font.pixelSize: 11; font.bold: true; color: colViolet }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: stSteps.value.toFixed(0) + " risers @ " + (stRiser.value * 100).toFixed(1) + "cm"
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        color: colCyan
+                                    }
+                                }
+
+                                Canvas {
+                                    id: stairCanvas
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        ctx.clearRect(0, 0, width, height)
+
+                                        var nSteps = stSteps.value
+                                        var tVal = stTread.value
+                                        var rVal = stRiser.value
+                                        var stMode = stairsView.stStyle
+
+                                        var totalH = nSteps * rVal
+                                        var totalL = nSteps * tVal
+
+                                        var maxDim = Math.max(totalL, totalH, 2.5)
+                                        var scale = Math.min((width * 0.70) / maxDim, (height * 0.70) / maxDim)
+
+                                        var startX = width * 0.16
+                                        var startY = height * 0.82
+
+                                        // Ground baseline
+                                        ctx.beginPath()
+                                        ctx.moveTo(startX - 15, startY)
+                                        ctx.lineTo(startX + (totalL * scale) + 30, startY)
+                                        ctx.strokeStyle = "rgba(255, 255, 255, 0.18)"
+                                        ctx.lineWidth = 1.0
+                                        ctx.stroke()
+
+                                        if (stMode === "spiral") {
+                                            // Draw spiral projection rings
+                                            var cx = width * 0.50
+                                            var cy = height * 0.50
+                                            var rad = 75
+                                            ctx.beginPath()
+                                            ctx.arc(cx, cy, rad, 0, 2 * Math.PI)
+                                            ctx.strokeStyle = "rgba(0, 245, 255, 0.4)"
+                                            ctx.lineWidth = 1.5
+                                            ctx.stroke()
+
+                                            ctx.beginPath()
+                                            ctx.arc(cx, cy, 20, 0, 2 * Math.PI)
+                                            ctx.fillStyle = "rgba(139, 92, 246, 0.6)"
+                                            ctx.fill()
+
+                                            for (var s = 0; s < nSteps; s++) {
+                                                var ang = s * (20 * Math.PI / 180)
+                                                ctx.beginPath()
+                                                ctx.moveTo(cx + 20 * Math.cos(ang), cy + 20 * Math.sin(ang))
+                                                ctx.lineTo(cx + rad * Math.cos(ang), cy + rad * Math.sin(ang))
+                                                ctx.strokeStyle = Qt.rgba(0, 0.95, 1, 0.6)
+                                                ctx.lineWidth = 1.5
+                                                ctx.stroke()
+                                            }
+                                        } else {
+                                            // Straight or Floating Steps
+                                            ctx.beginPath()
+                                            ctx.moveTo(startX, startY)
+                                            var curX = startX
+                                            var curY = startY
+
+                                            for (var i = 0; i < nSteps; i++) {
+                                                curY -= (rVal * scale)
+                                                ctx.lineTo(curX, curY)
+                                                curX += (tVal * scale)
+                                                ctx.lineTo(curX, curY)
+                                            }
+
+                                            if (stMode === "solid") {
+                                                ctx.lineTo(curX, startY)
+                                                ctx.closePath()
+                                                ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
+                                                ctx.fill()
+                                                ctx.strokeStyle = "#00F5FF"
+                                                ctx.lineWidth = 2.0
+                                                ctx.stroke()
+                                            } else {
+                                                // Floating treads
+                                                ctx.strokeStyle = "#8B5CF6"
+                                                ctx.lineWidth = 2.2
+                                                ctx.stroke()
+                                            }
+
+                                            // Incline Slope dashed line
+                                            ctx.beginPath()
+                                            ctx.moveTo(startX, startY)
+                                            ctx.lineTo(curX, curY)
+                                            ctx.strokeStyle = "rgba(245, 158, 11, 0.5)"
+                                            ctx.lineWidth = 1.2
+                                            ctx.stroke()
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "Real-time architectural ergonomics preview"
+                                    font.pixelSize: 10
+                                    color: colTextSecondary
+                                }
+                            }
+                        }
+                    }
+
+                    // =========================================================
+                    // VIEW 2: 3D SOLIDS & MASSING
                     // =========================================================
                     RowLayout {
                         spacing: 20

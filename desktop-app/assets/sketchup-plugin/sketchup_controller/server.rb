@@ -125,6 +125,9 @@ module SketchUpController
       when '/api/design/cylinder'
         Geometry.create_cylinder(body)
 
+      when '/api/design/stairs'
+        Geometry.create_stairs(body)
+
       when '/api/design/clear'
         Geometry.clear_entities
 
