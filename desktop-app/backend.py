@@ -184,5 +184,111 @@ class Backend(QObject):
         self._send_action("/api/eval", {"code": code}, "Ruby Script")
 
     @Slot()
+    def autoSetupPlugin(self):
+        """
+        Automatically detects installed SketchUp versions on macOS and Windows,
+        and copies the Ruby extension files directly into the Plugins directory.
+        """
+        def worker():
+            import os
+            import shutil
+
+            def safe_remove(p):
+                try:
+                    if os.path.islink(p) or os.path.isfile(p):
+                        os.unlink(p)
+                    elif os.path.isdir(p):
+                        shutil.rmtree(p)
+                except Exception:
+                    pass
+
+            def get_source_plugin_dir():
+                candidates = [
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sketchup-plugin"),
+                    os.path.join(os.getcwd(), "desktop-app", "assets", "sketchup-plugin"),
+                    os.path.join(os.getcwd(), "assets", "sketchup-plugin"),
+                    os.path.join(os.getcwd(), "sketchup-plugin"),
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sketchup-plugin"),
+                ]
+                if hasattr(sys, "_MEIPASS"):
+                    candidates.insert(0, os.path.join(sys._MEIPASS, "assets", "sketchup-plugin"))
+                    candidates.insert(1, os.path.join(sys._MEIPASS, "desktop-app", "assets", "sketchup-plugin"))
+
+                for c in candidates:
+                    if os.path.exists(os.path.join(c, "sketchup_controller.rb")):
+                        return os.path.abspath(c)
+                return None
+
+            src_dir = get_source_plugin_dir()
+            if not src_dir:
+                self.actionFinished.emit("Plugin assets not found in app bundle.", False)
+                return
+
+            installed_targets = []
+            home = os.path.expanduser("~")
+
+            if sys.platform == "darwin":
+                base_app_support = os.path.join(home, "Library", "Application Support")
+                years = ["2026", "2025", "2024", "2023", "2022", "2021"]
+                for yr in years:
+                    p_dir = os.path.join(base_app_support, f"SketchUp {yr}", "SketchUp", "Plugins")
+                    installed_targets.append((f"SketchUp {yr}", p_dir))
+            elif sys.platform == "win32":
+                appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
+                years = ["2026", "2025", "2024", "2023", "2022", "2021"]
+                for yr in years:
+                    p_dir = os.path.join(appdata, "SketchUp", f"SketchUp {yr}", "SketchUp", "Plugins")
+                    installed_targets.append((f"SketchUp {yr}", p_dir))
+            else:
+                self.actionFinished.emit("Unsupported operating system for auto-setup.", False)
+                return
+
+            success_count = 0
+            installed_names = []
+
+            for name, target_dir in installed_targets:
+                parent_su = os.path.dirname(target_dir)
+                if os.path.exists(parent_su) or "2026" in name:
+                    try:
+                        os.makedirs(target_dir, exist_ok=True)
+
+                        src_rb = os.path.join(src_dir, "sketchup_controller.rb")
+                        dst_rb = os.path.join(target_dir, "sketchup_controller.rb")
+                        safe_remove(dst_rb)
+                        shutil.copy2(src_rb, dst_rb)
+
+                        src_sub = os.path.join(src_dir, "sketchup_controller")
+                        dst_sub = os.path.join(target_dir, "sketchup_controller")
+                        safe_remove(dst_sub)
+                        shutil.copytree(src_sub, dst_sub)
+
+                        success_count += 1
+                        installed_names.append(name)
+                    except Exception as err:
+                        print(f"[AutoSetup] Failed for {name}: {err}", file=sys.stderr)
+
+            if success_count > 0:
+                joined = ", ".join(installed_names)
+                msg = f"Setup complete for {joined}! Please restart SketchUp."
+                self.actionFinished.emit(msg, True)
+            else:
+                try:
+                    name, target_dir = installed_targets[0]
+                    os.makedirs(target_dir, exist_ok=True)
+                    src_rb = os.path.join(src_dir, "sketchup_controller.rb")
+                    dst_rb = os.path.join(target_dir, "sketchup_controller.rb")
+                    safe_remove(dst_rb)
+                    shutil.copy2(src_rb, dst_rb)
+
+                    dst_sub = os.path.join(target_dir, "sketchup_controller")
+                    safe_remove(dst_sub)
+                    shutil.copytree(os.path.join(src_dir, "sketchup_controller"), dst_sub)
+                    self.actionFinished.emit(f"Setup complete for {name}! Restart SketchUp.", True)
+                except Exception as e:
+                    self.actionFinished.emit(f"Auto-setup failed: {str(e)}", False)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @Slot()
     def refresh(self):
         self.poll_status_async()

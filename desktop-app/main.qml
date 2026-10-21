@@ -354,6 +354,40 @@ ApplicationWindow {
 
                     Item { Layout.fillWidth: true }
 
+                    // 1-Click Auto Setup Button
+                    Rectangle {
+                        id: autoSetupBtn
+                        height: 38
+                        implicitWidth: autoSetupRow.implicitWidth + 24
+                        radius: 19
+                        color: autoSetupM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.28) : Qt.rgba(0, 0.95, 1, 0.12)
+                        border.width: 1
+                        border.color: autoSetupM.containsMouse ? colCyan : Qt.rgba(0, 0.95, 1, 0.40)
+
+                        Behavior on color { ColorAnimation { duration: 150 } }
+
+                        RowLayout {
+                            id: autoSetupRow
+                            anchors.centerIn: parent
+                            spacing: 8
+                            FAIcon { text: fa.bolt; font.pixelSize: 13; color: colCyan }
+                            Text {
+                                text: "1-Click Auto Setup"
+                                font.pixelSize: 11
+                                font.bold: true
+                                color: "#FFFFFF"
+                            }
+                        }
+
+                        MouseArea {
+                            id: autoSetupM
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: backend.autoSetupPlugin()
+                        }
+                    }
+
                     // Live Status Capsule
                     Rectangle {
                         property bool isConn: backend ? backend.connected : false
@@ -390,6 +424,57 @@ ApplicationWindow {
                 }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: colBorderLight }
+
+                // Helpful Connection & Setup Banner (When Offline)
+                Rectangle {
+                    visible: backend ? !backend.connected : true
+                    Layout.fillWidth: true
+                    height: 36
+                    radius: 10
+                    color: Qt.rgba(0.96, 0.62, 0.04, 0.12)
+                    border.width: 1
+                    border.color: Qt.rgba(0.96, 0.62, 0.04, 0.3)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        spacing: 10
+
+                        FAIcon { text: fa.info; font.pixelSize: 12; color: colAmber }
+                        Text {
+                            text: "SketchUp Bridge is offline. Click 'Auto Setup' to install the plugin into SketchUp, then launch SketchUp 2026."
+                            font.pixelSize: 11
+                            color: colTextPrimary
+                            Layout.fillWidth: true
+                        }
+
+                        Rectangle {
+                            height: 24
+                            width: quickSetupTxt.implicitWidth + 18
+                            radius: 12
+                            color: qSetupM.containsMouse ? colCyan : Qt.rgba(0, 0.95, 1, 0.2)
+                            border.width: 1
+                            border.color: colCyan
+
+                            Text {
+                                id: quickSetupTxt
+                                anchors.centerIn: parent
+                                text: "Install Now"
+                                font.pixelSize: 10
+                                font.bold: true
+                                color: qSetupM.containsMouse ? "#05070B" : colCyan
+                            }
+                            MouseArea {
+                                id: qSetupM
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: backend.autoSetupPlugin()
+                            }
+                        }
+                    }
+                }
 
                 // Dynamic Workspace Views
                 StackLayout {
@@ -1168,6 +1253,61 @@ ApplicationWindow {
                     id: drwCol
                     width: parent.width
                     spacing: 16
+
+                    // 1-Click Auto Setup Card
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: setupCardCol.implicitHeight + 28
+                        radius: 14
+                        color: Qt.rgba(0, 0.95, 1, 0.08)
+                        border.width: 1
+                        border.color: colCyan
+
+                        ColumnLayout {
+                            id: setupCardCol
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 10
+
+                            RowLayout {
+                                spacing: 8
+                                FAIcon { text: fa.bolt; font.pixelSize: 14; color: colCyan }
+                                Text { text: "1-CLICK SKETCHUP AUTO-SETUP"; font.pixelSize: 12; font.bold: true; color: "#FFFFFF" }
+                            }
+
+                            Text {
+                                text: "Instantly installs and activates the controller plugin in SketchUp (macOS or Windows). No file moving or terminal required."
+                                font.pixelSize: 11
+                                color: colTextSecondary
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 38
+                                radius: 10
+                                gradient: Gradient {
+                                    GradientStop { position: 0.0; color: colCyan }
+                                    GradientStop { position: 1.0; color: colViolet }
+                                }
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 8
+                                    FAIcon { text: fa.bolt; font.pixelSize: 12; color: "#05070B" }
+                                    Text { text: "Auto-Setup Plugin into SketchUp Now"; font.pixelSize: 11; font.bold: true; color: "#05070B" }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: backend.autoSetupPlugin()
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: colBorderLight }
 
                     RowLayout {
                         spacing: 8
