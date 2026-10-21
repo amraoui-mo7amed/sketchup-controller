@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "sketchup": {
+      "command": "/Users/amraouimohamed/sites/sketchup-controller/venv/bin/python3",
+      "args": [
+        "/Users/amraouimohamed/sites/sketchup-controller/mcp-server/sketchup_mcp.py"
+      ]
+    }
+  }
+}
