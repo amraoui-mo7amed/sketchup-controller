@@ -1,29 +1,24 @@
 import os
 import sys
 import traceback
+from PySide6.QtGui import QGuiApplication, QIcon, QFontDatabase
+from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtCore import QUrl
+from backend import Backend
 
 def resolve_path(relative_path):
-    """
-    Robust resource path resolver for dev and PyInstaller frozen builds.
-    """
-    candidates = []
-
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path),
+        os.path.join(os.getcwd(), relative_path),
+        os.path.join(os.getcwd(), "desktop-app", relative_path),
+    ]
     if hasattr(sys, "_MEIPASS"):
-        candidates.append(os.path.join(sys._MEIPASS, relative_path))
-        candidates.append(os.path.join(sys._MEIPASS, "desktop-app", relative_path))
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates.append(os.path.join(script_dir, relative_path))
-    candidates.append(os.path.join(script_dir, "desktop-app", relative_path))
-
-    cwd = os.getcwd()
-    candidates.append(os.path.join(cwd, relative_path))
-    candidates.append(os.path.join(cwd, "desktop-app", relative_path))
+        candidates.insert(0, os.path.join(sys._MEIPASS, relative_path))
+        candidates.insert(1, os.path.join(sys._MEIPASS, "desktop-app", relative_path))
 
     for path in candidates:
         if os.path.exists(path):
             return os.path.abspath(path)
-
     return os.path.abspath(candidates[0])
 
 def log_fatal_error(err_str):
@@ -50,23 +45,38 @@ def log_fatal_error(err_str):
 
 def main():
     try:
-        from PySide6.QtWidgets import QApplication
-        from PySide6.QtGui import QIcon
-        from backend import Backend
-        from ui_widgets import MainWindow
+        os.environ["QT_QUICK_CONTROLS_STYLE"] = "Basic"
 
-        app = QApplication(sys.argv)
+        app = QGuiApplication(sys.argv)
         app.setApplicationName("Liquid CAD Studio")
         app.setOrganizationName("Antigravity")
 
-        # Set Window and Taskbar Icon
         icon_path = resolve_path(os.path.join("assets", "taskbar_icon.png"))
         if os.path.exists(icon_path):
             app.setWindowIcon(QIcon(icon_path))
 
+        # Register FontAwesome Fonts
+        solid_font_path = resolve_path(os.path.join("assets", "fonts", "fa-solid-900.ttf"))
+        if os.path.exists(solid_font_path):
+            QFontDatabase.addApplicationFont(solid_font_path)
+
+        brands_font_path = resolve_path(os.path.join("assets", "fonts", "fa-brands-400.ttf"))
+        if os.path.exists(brands_font_path):
+            QFontDatabase.addApplicationFont(brands_font_path)
+
+        engine = QQmlApplicationEngine()
+
         backend = Backend()
-        window = MainWindow(backend)
-        window.show()
+        engine.rootContext().setContextProperty("backend", backend)
+
+        qml_file = resolve_path("main.qml")
+        engine.warnings.connect(lambda ws: [print("[QML Warning]", w.toString()) for w in ws])
+        engine.load(QUrl.fromLocalFile(qml_file))
+
+        if not engine.rootObjects():
+            err_msg = f"Error: Could not load QML from {qml_file}"
+            log_fatal_error(err_msg)
+            sys.exit(-1)
 
         sys.exit(app.exec())
 
