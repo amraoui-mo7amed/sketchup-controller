@@ -151,7 +151,8 @@ def render_master_icon(size=1024):
     return img
 
 def main():
-    assets_dir = "/Users/amraouimohamed/sites/sketchup-controller/desktop-app/assets"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    assets_dir = os.path.join(current_dir, "desktop-app", "assets")
     os.makedirs(assets_dir, exist_ok=True)
 
     print("Rendering 1024x1024 Master Icon...")
