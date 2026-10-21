@@ -1266,5 +1266,101 @@ module SketchUpController
     def self.build_fountain(gent, br, h)
       build_cylinder(gent, br, 0.45, 24)
     end
+
+    # -------------------------------------------------------------------------
+    # 3D FILE IMPORTER (.skp, .obj, .dae, .stl, .3ds, .dwg, .dxf, .ifc)
+    # -------------------------------------------------------------------------
+    def self.import_file(params = {})
+      file_path = params['file_path'] || params['path']
+      return { status: 'error', message: 'No file path provided' } unless file_path && File.exist?(file_path)
+
+      model = Sketchup.active_model
+      return { status: 'error', message: 'No active SketchUp model' } unless model
+
+      name = params['name'] || File.basename(file_path, '.*')
+      x = (params['x'] || 0.0).to_f
+      y = (params['y'] || 0.0).to_f
+      z = (params['z'] || 0.0).to_f
+      rot_z = (params['rot_z'] || params['rotation'] || 0.0).to_f
+      rot_x = (params['rot_x'] || 0.0).to_f
+      rot_y = (params['rot_y'] || 0.0).to_f
+      scale_u = (params['scale'] || 1.0).to_f
+      scale_x = (params['scale_x'] || scale_u).to_f
+      scale_y = (params['scale_y'] || scale_u).to_f
+      scale_z = (params['scale_z'] || scale_u).to_f
+      layer_name = params['layer'] || params['tag']
+
+      ext = File.extname(file_path).downcase
+
+      model.start_operation("Insert #{name}", true)
+
+      pt = Geom::Point3d.new(x.m, y.m, z.m)
+      t_trans = Geom::Transformation.translation(pt)
+      t_rotz = Geom::Transformation.rotation(pt, Geom::Vector3d.new(0, 0, 1), rot_z.degrees)
+      t_rotx = Geom::Transformation.rotation(pt, Geom::Vector3d.new(1, 0, 0), rot_x.degrees)
+      t_roty = Geom::Transformation.rotation(pt, Geom::Vector3d.new(0, 1, 0), rot_y.degrees)
+      t_scale = Geom::Transformation.scaling(pt, scale_x, scale_y, scale_z)
+      transform = t_trans * t_rotz * t_rotx * t_roty * t_scale
+
+      instance_or_group = nil
+
+      if ext == '.skp'
+        # Check if definition already loaded in model
+        definition = nil
+        model.definitions.each do |d|
+          if d.path == file_path || d.name == name
+            definition = d
+            break
+          end
+        end
+
+        definition ||= model.definitions.load(file_path)
+
+        if definition
+          instance_or_group = model.active_entities.add_instance(definition, transform)
+          instance_or_group.name = name unless name.empty?
+        else
+          model.abort_operation
+          return { status: 'error', message: "Failed to load SketchUp component from #{file_path}" }
+        end
+      else
+        # Supported 3D formats (.obj, .dae, .stl, .3ds, .dwg, .dxf, .ifc)
+        before_ents = model.active_entities.to_a
+        model.import(file_path, false)
+        after_ents = model.active_entities.to_a
+        new_ents = after_ents - before_ents
+
+        if !new_ents.empty?
+          if new_ents.length == 1 && (new_ents.first.is_a?(Sketchup::Group) || new_ents.first.is_a?(Sketchup::ComponentInstance))
+            instance_or_group = new_ents.first
+            instance_or_group.transform!(transform)
+          else
+            instance_or_group = model.active_entities.add_group(new_ents)
+            instance_or_group.transform!(transform)
+          end
+          instance_or_group.name = name unless name.empty?
+        end
+      end
+
+      if instance_or_group && layer_name && !layer_name.strip.empty?
+        tag = model.layers[layer_name] || model.layers.add(layer_name)
+        instance_or_group.layer = tag
+      end
+
+      model.commit_operation
+
+      {
+        status: 'success',
+        message: "Successfully inserted '#{name}' (#{ext.upcase}) into SketchUp at [#{x.round(2)}, #{y.round(2)}, #{z.round(2)}]m",
+        name: name,
+        extension: ext,
+        position: [x, y, z],
+        scale: [scale_x, scale_y, scale_z],
+        rotation: rot_z
+      }
+    rescue => e
+      model.abort_operation if model
+      { status: 'error', message: "Import failed: #{e.message}" }
+    end
   end
 end

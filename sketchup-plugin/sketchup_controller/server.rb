@@ -131,6 +131,9 @@ module SketchUpController
       when '/api/design/shape'
         Geometry.create_shape(body)
 
+      when '/api/import'
+        Geometry.import_file(body)
+
       when '/api/design/clear'
         Geometry.clear_entities
 

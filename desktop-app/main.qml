@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "shapes_library.js" as ShapeLib
 
 ApplicationWindow {
     id: root
@@ -34,30 +33,103 @@ ApplicationWindow {
     property bool infoDrawerOpen: false
     property bool exportModalOpen: false
 
-    // Shape Library & Inspector Drawer State
+    // 3D Model Components & Assets State (Loaded dynamically from /models/<category>/**)
+    property var modelAssets: []
+    property var assetCategories: []
+    property var selectedAsset: null
     property string activeCategory: "all"
     property string searchQuery: ""
     property var selectedShape: null
     property var currentParamValues: ({})
-    property bool shapeDrawerOpen: false
-    property bool shapeDrawerFullWidth: false
+    property bool modelModalOpen: false
 
-    function selectShape(shape) {
-        if (!shape) return
-        selectedShape = shape
-        var vals = {}
-        if (shape.params) {
-            for (var i = 0; i < shape.params.length; i++) {
-                var p = shape.params[i]
+    Component.onCompleted: {
+        loadAssets()
+    }
+
+    function loadAssets() {
+        try {
+            var raw = backend.getLibraryAssets()
+            modelAssets = JSON.parse(raw)
+        } catch(e) {
+            modelAssets = []
+        }
+        try {
+            var rawCats = backend.getLibraryCategories()
+            var parsed = JSON.parse(rawCats)
+            if (parsed && parsed.length > 0) {
+                assetCategories = parsed
+            } else {
+                assetCategories = [{ "id": "all", "name": "All 3D Models", "count": modelAssets.length, "iconKey": "cubes" }]
+            }
+        } catch(e) {
+            assetCategories = [{ "id": "all", "name": "All 3D Models", "count": modelAssets.length, "iconKey": "cubes" }]
+        }
+        // Verify activeCategory exists in newly loaded categories
+        var validCat = false
+        for (var i = 0; i < assetCategories.length; i++) {
+            if (assetCategories[i].id === activeCategory) {
+                validCat = true
+                break
+            }
+        }
+        if (!validCat) {
+            activeCategory = "all"
+        }
+    }
+
+    function getFilteredAssets(cat, query) {
+        var res = []
+        var q = (query || "").toLowerCase().trim()
+        for (var i = 0; i < modelAssets.length; i++) {
+            var item = modelAssets[i]
+            var matchCat = (cat === "all") || (item.category === cat)
+            var matchQuery = (q === "") || 
+                             (item.name && item.name.toLowerCase().indexOf(q) !== -1) || 
+                             (item.filename && item.filename.toLowerCase().indexOf(q) !== -1) || 
+                             (item.ext && item.ext.toLowerCase().indexOf(q) !== -1) ||
+                             (item.category_name && item.category_name.toLowerCase().indexOf(q) !== -1)
+            if (matchCat && matchQuery) {
+                res.push(item)
+            }
+        }
+        return res
+    }
+
+    function selectAsset(asset) {
+        if (!asset) return
+        selectedAsset = asset
+        selectedShape = asset
+        var vals = {
+            "scale": 1.0,
+            "rot_z": 0.0,
+            "pos_x": 0.0,
+            "pos_y": 0.0,
+            "pos_z": 0.0,
+            "name": asset.name || asset.filename || "Model",
+            "layer": "Untagged"
+        }
+        if (asset.params) {
+            for (var i = 0; i < asset.params.length; i++) {
+                var p = asset.params[i]
                 vals[p.key] = p.val
             }
         }
         currentParamValues = vals
-        shapeDrawerOpen = true
+        modelModalOpen = true
+    }
+
+    function selectShape(shape) {
+        selectAsset(shape)
     }
 
     function selectShapeById(shapeId) {
-        selectShape(ShapeLib.getShapeById(shapeId))
+        for (var i = 0; i < modelAssets.length; i++) {
+            if (modelAssets[i].id === shapeId) {
+                selectAsset(modelAssets[i])
+                return
+            }
+        }
     }
 
     function updateShapeParam(key, value) {
@@ -69,13 +141,22 @@ ApplicationWindow {
         currentParamValues = copy
     }
 
+    function insertSelectedModel() {
+        if (!selectedAsset) return
+        backend.insertModel(selectedAsset.path, JSON.stringify(currentParamValues))
+        modelModalOpen = false
+    }
+
     function buildSelectedShape() {
-        if (!selectedShape) return
-        backend.createParametricShape(selectedShape.id, JSON.stringify(currentParamValues))
+        insertSelectedModel()
+    }
+
+    function closeModelModal() {
+        modelModalOpen = false
     }
 
     function closeDrawer() {
-        shapeDrawerOpen = false
+        modelModalOpen = false
     }
 
     // Toast state
@@ -90,6 +171,27 @@ ApplicationWindow {
             toastSuccess = success
             toastVisible = true
             toastTimer.restart()
+        }
+        function onLibraryReloaded() {
+            loadAssets()
+        }
+        function onAssetImported(jsonStr) {
+            try {
+                var asset = JSON.parse(jsonStr)
+                if (asset && asset.id) {
+                    var list = [asset]
+                    for (var i = 0; i < modelAssets.length; i++) {
+                        if (modelAssets[i].id !== asset.id) {
+                            list.push(modelAssets[i])
+                        }
+                    }
+                    modelAssets = list
+                    selectAsset(asset)
+                    root.activeCategory = "all"
+                }
+            } catch(e) {
+                console.log("Error parsing imported asset:", e)
+            }
         }
     }
 
@@ -129,6 +231,7 @@ ApplicationWindow {
         readonly property string arrowRight: "\uf061"
         readonly property string arrowLeft: "\uf060"
         readonly property string arrowUp: "\uf062"
+        readonly property string arrowDown: "\uf063"
         readonly property string play: "\uf04b"
         readonly property string xmark: "\uf00d"
         readonly property string check: "\uf00c"
@@ -262,7 +365,7 @@ ApplicationWindow {
 
                         Repeater {
                             model: [
-                                { id: 0, label: "Shapes", icon: fa.cubes },
+                                { id: 0, label: "3D Models", icon: fa.cubes },
                                 { id: 1, label: "Solids", icon: fa.cube },
                                 { id: 2, label: "Camera", icon: fa.camera },
                                 { id: 3, label: "Stats", icon: fa.chart }
@@ -337,7 +440,7 @@ ApplicationWindow {
                             clip: true
 
                             Text {
-                                text: "Search shapes..."
+                                text: "Search 3D models & components..."
                                 color: Qt.rgba(1, 1, 1, 0.35)
                                 font.pixelSize: 10
                                 visible: !topSearchIn.text && !topSearchIn.activeFocus
@@ -382,6 +485,37 @@ ApplicationWindow {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.exportModalOpen = true
+                    }
+                }
+
+                // Import 3D File Button (.skp, .obj, .dae, .stl, etc.)
+                Rectangle {
+                    height: 32
+                    implicitWidth: importTopBtnRow.implicitWidth + 20
+                    radius: 16
+                    color: importTopBtnM.containsMouse ? Qt.rgba(139, 92, 246, 0.28) : Qt.rgba(139, 92, 246, 0.14)
+                    border.width: 1
+                    border.color: importTopBtnM.containsMouse ? colViolet : Qt.rgba(139, 92, 246, 0.40)
+
+                    RowLayout {
+                        id: importTopBtnRow
+                        anchors.centerIn: parent
+                        spacing: 6
+                        FAIcon { text: fa.folder; font.pixelSize: 11; color: colViolet }
+                        Text {
+                            text: "Import 3D"
+                            font.pixelSize: 10
+                            font.bold: true
+                            color: "#FFFFFF"
+                        }
+                    }
+
+                    MouseArea {
+                        id: importTopBtnM
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: backend.browse3DFile()
                     }
                 }
 
@@ -506,7 +640,7 @@ ApplicationWindow {
                         spacing: 6
 
                         Repeater {
-                            model: ShapeLib.categories
+                            model: root.assetCategories
 
                             Rectangle {
                                 property bool isSel: root.activeCategory === modelData.id
@@ -522,12 +656,12 @@ ApplicationWindow {
                                     anchors.centerIn: parent
                                     spacing: 5
                                     FAIcon {
-                                        text: modelData.icon
+                                        text: (modelData.iconKey && fa[modelData.iconKey] !== undefined) ? fa[modelData.iconKey] : (modelData.icon || fa.folder)
                                         font.pixelSize: 10
                                         color: parent.parent.isSel ? colCyan : colTextSecondary
                                     }
                                     Text {
-                                        text: modelData.name
+                                        text: modelData.name + (modelData.count !== undefined && modelData.id !== "all" ? (" (" + modelData.count + ")") : "")
                                         font.pixelSize: 10
                                         font.bold: parent.parent.isSel
                                         color: parent.parent.isSel ? "#FFFFFF" : colTextSecondary
@@ -549,40 +683,89 @@ ApplicationWindow {
                 Rectangle { width: 1; height: 18; color: colBorderSubtle }
 
                 Text {
-                    text: shapesRepeater.count + " shapes"
+                    text: modelCardsRepeater.count + " models"
                     font.pixelSize: 10
                     color: colTextMuted
                 }
 
-                // Drawer Toggle Indicator
+                // Import 3D File Button in Ribbon
                 Rectangle {
-                    visible: root.selectedShape !== null
-                    height: 24
-                    implicitWidth: drwToggleRow.implicitWidth + 14
-                    radius: 12
-                    color: drwToggleM.containsMouse ? Qt.rgba(139, 92, 246, 0.25) : Qt.rgba(139, 92, 246, 0.12)
+                    height: 26
+                    implicitWidth: ribImpRow.implicitWidth + 16
+                    radius: 13
+                    color: ribImpM.containsMouse ? Qt.rgba(139, 92, 246, 0.3) : Qt.rgba(139, 92, 246, 0.15)
                     border.width: 1
                     border.color: colViolet
 
                     RowLayout {
-                        id: drwToggleRow
+                        id: ribImpRow
                         anchors.centerIn: parent
                         spacing: 5
-                        FAIcon { text: fa.sliders; font.pixelSize: 9; color: colViolet }
-                        Text {
-                            text: root.shapeDrawerOpen ? "Hide Inspector" : "Show Inspector"
-                            font.pixelSize: 9
-                            font.bold: true
-                            color: "#FFFFFF"
-                        }
+                        FAIcon { text: fa.plus; font.pixelSize: 9; color: colViolet }
+                        Text { text: "Import File"; font.pixelSize: 10; font.bold: true; color: "#FFFFFF" }
                     }
 
                     MouseArea {
-                        id: drwToggleM
+                        id: ribImpM
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.shapeDrawerOpen = !root.shapeDrawerOpen
+                        onClicked: backend.browse3DFile()
+                    }
+                }
+
+                // Open /models/ folder in system file manager
+                Rectangle {
+                    height: 26
+                    implicitWidth: ribOpenRow.implicitWidth + 16
+                    radius: 13
+                    color: ribOpenM.containsMouse ? Qt.rgba(255, 255, 255, 0.12) : Qt.rgba(255, 255, 255, 0.05)
+                    border.width: 1
+                    border.color: colBorderSubtle
+
+                    RowLayout {
+                        id: ribOpenRow
+                        anchors.centerIn: parent
+                        spacing: 5
+                        FAIcon { text: fa.folder; font.pixelSize: 9; color: colCyan }
+                        Text { text: "Open /models/"; font.pixelSize: 10; font.bold: true; color: colTextSecondary }
+                    }
+
+                    MouseArea {
+                        id: ribOpenM
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: backend.openModelsFolder()
+                    }
+                }
+
+                // Refresh / Scan models directory button
+                Rectangle {
+                    height: 26
+                    implicitWidth: ribScanRow.implicitWidth + 16
+                    radius: 13
+                    color: ribScanM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.20) : Qt.rgba(1, 1, 1, 0.05)
+                    border.width: 1
+                    border.color: colBorderSubtle
+
+                    RowLayout {
+                        id: ribScanRow
+                        anchors.centerIn: parent
+                        spacing: 5
+                        FAIcon { text: fa.sync; font.pixelSize: 8; color: colCyan }
+                        Text { text: "Scan /models/"; font.pixelSize: 10; font.bold: true; color: colTextSecondary }
+                    }
+
+                    MouseArea {
+                        id: ribScanM
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            backend.refreshLibrary()
+                            root.loadAssets()
+                        }
                     }
                 }
             }
@@ -600,10 +783,52 @@ ApplicationWindow {
             // MAIN CONTENT STAGE (StackLayout for remaining Studios)
             // -----------------------------------------------------------------
             Item {
-                Layout.fillWidth: !root.shapeDrawerFullWidth
+                Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: !root.shapeDrawerFullWidth
                 clip: true
+
+                DropArea {
+                    id: stageDropArea
+                    anchors.fill: parent
+                    onEntered: function(drag) {
+                        if (drag.hasUrls) drag.acceptProposedAction()
+                    }
+                    onDropped: function(drop) {
+                        if (drop.hasUrls) {
+                            for (var i = 0; i < drop.urls.length; i++) {
+                                var u = drop.urls[i].toString()
+                                var localPath = u.replace(/^file:\/\//, "")
+                                backend.importFileFromPath(decodeURIComponent(localPath))
+                            }
+                            drop.acceptProposedAction()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    z: 999
+                    visible: stageDropArea.containsDrag
+                    color: Qt.rgba(0.04, 0.08, 0.16, 0.92)
+                    border.width: 2
+                    border.color: colCyan
+                    radius: 16
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 12
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            width: 60; height: 60; radius: 30
+                            color: Qt.rgba(0, 0.95, 1, 0.15)
+                            border.width: 1.5; border.color: colCyan
+                            FAIcon { anchors.centerIn: parent; text: fa.plus; font.pixelSize: 22; color: colCyan }
+                        }
+                        Text { text: "Drop 3D Model to Import"; font.pixelSize: 16; font.bold: true; color: "#FFFFFF"; Layout.alignment: Qt.AlignHCenter }
+                        Text { text: "Supports .SKP, .OBJ, .DAE, .STL, .3DS, .DWG, .DXF, .IFC"; font.pixelSize: 11; color: colTextSecondary; Layout.alignment: Qt.AlignHCenter }
+                    }
+                }
 
                 StackLayout {
                     anchors.fill: parent
@@ -627,13 +852,13 @@ ApplicationWindow {
                                 spacing: 12
 
                                 Repeater {
-                                    id: shapesRepeater
-                                    model: ShapeLib.getShapesByCategory(root.activeCategory, root.searchQuery)
+                                    id: modelCardsRepeater
+                                    model: root.getFilteredAssets(root.activeCategory, root.searchQuery)
 
                                     Rectangle {
-                                        property bool isAct: root.selectedShape && root.selectedShape.id === modelData.id
-                                        width: Math.max(180, Math.floor((shapesFlow.width - (3 * 12)) / (root.shapeDrawerOpen ? 3 : 4)))
-                                        height: 120
+                                        property bool isAct: root.selectedAsset && root.selectedAsset.id === modelData.id
+                                        width: Math.max(220, Math.floor((shapesFlow.width - (3 * 14)) / 4))
+                                        height: 145
                                         radius: 14
                                         color: isAct ? Qt.rgba(0, 0.95, 1, 0.12) : (cardMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : colGlassCard)
                                         border.width: isAct ? 1.5 : 1
@@ -648,43 +873,55 @@ ApplicationWindow {
                                             anchors.margins: 12
                                             spacing: 6
 
-                                            // Card Top Row: Squircle Icon + Category Pill
+                                            // Card Top Row: Thumbnail Image / Icon + Extension Pill
                                             RowLayout {
                                                 Layout.fillWidth: true
 
                                                 Rectangle {
-                                                    width: 32; height: 32; radius: 9
-                                                    gradient: Gradient {
-                                                        GradientStop { position: 0.0; color: isAct ? colCyan : (cardMouse.containsMouse ? colCyan : Qt.rgba(0, 0.95, 1, 0.25)) }
-                                                        GradientStop { position: 1.0; color: isAct ? colViolet : (cardMouse.containsMouse ? colViolet : Qt.rgba(139, 92, 246, 0.25)) }
+                                                    width: 44; height: 44; radius: 10
+                                                    color: Qt.rgba(0, 0, 0, 0.40)
+                                                    border.width: 1
+                                                    border.color: isAct ? colCyan : Qt.rgba(1, 1, 1, 0.10)
+                                                    clip: true
+
+                                                    Image {
+                                                        id: cardThumbImg
+                                                        anchors.fill: parent
+                                                        source: modelData.thumbnail ? ("file://" + modelData.thumbnail) : ""
+                                                        fillMode: Image.PreserveAspectFit
+                                                        visible: modelData.thumbnail !== "" && status === Image.Ready
                                                     }
+
                                                     FAIcon {
                                                         anchors.centerIn: parent
-                                                        text: modelData.icon
-                                                        font.pixelSize: 14
-                                                        color: (isAct || cardMouse.containsMouse) ? "#05070B" : colCyan
+                                                        visible: !modelData.thumbnail || cardThumbImg.status !== Image.Ready
+                                                        text: modelData.ext === "SKP" ? fa.cube : fa.folder
+                                                        font.pixelSize: 18
+                                                        color: isAct ? colCyan : colTextSecondary
                                                     }
                                                 }
 
                                                 Item { Layout.fillWidth: true }
 
                                                 Rectangle {
-                                                    height: 16
-                                                    implicitWidth: cTagTxt.implicitWidth + 10
-                                                    radius: 8
-                                                    color: Qt.rgba(1, 1, 1, 0.05)
+                                                    height: 18
+                                                    implicitWidth: extTag.implicitWidth + 12
+                                                    radius: 9
+                                                    color: modelData.ext === "SKP" ? Qt.rgba(0, 0.95, 1, 0.16) : Qt.rgba(139, 92, 246, 0.20)
+                                                    border.width: 1
+                                                    border.color: modelData.ext === "SKP" ? colCyan : colViolet
                                                     Text {
-                                                        id: cTagTxt
+                                                        id: extTag
                                                         anchors.centerIn: parent
-                                                        text: modelData.category.toUpperCase()
+                                                        text: (modelData.ext || "SKP").toUpperCase()
                                                         font.pixelSize: 8
                                                         font.bold: true
-                                                        color: colTextMuted
+                                                        color: modelData.ext === "SKP" ? colCyan : colViolet
                                                     }
                                                 }
                                             }
 
-                                            // Shape Name
+                                            // Model Name
                                             Text {
                                                 text: modelData.name
                                                 font.pixelSize: 12
@@ -694,33 +931,31 @@ ApplicationWindow {
                                                 Layout.fillWidth: true
                                             }
 
-                                            // Shape Description
+                                            // Category & File Size
                                             Text {
-                                                text: modelData.desc
+                                                text: (modelData.category_name ? modelData.category_name.toUpperCase() : (modelData.category ? modelData.category.toUpperCase() : "3D")) + " • " + (modelData.size || "")
                                                 font.pixelSize: 9
                                                 color: colTextSecondary
-                                                wrapMode: Text.Wrap
-                                                maximumLineCount: 2
                                                 elide: Text.ElideRight
                                                 Layout.fillWidth: true
                                             }
 
                                             Item { Layout.fillHeight: true }
 
-                                            // Bottom Micro-Bar: Parameter count & Configure cue
+                                            // Bottom Micro-Bar: Configure cue
                                             RowLayout {
                                                 Layout.fillWidth: true
                                                 Text {
-                                                    text: (modelData.params ? modelData.params.length : 0) + " params"
-                                                    font.pixelSize: 9
+                                                    text: "Customizable"
+                                                    font.pixelSize: 8
                                                     color: colTextMuted
                                                 }
                                                 Item { Layout.fillWidth: true }
                                                 Text {
-                                                    text: isAct ? "Editing in Drawer →" : "Configure →"
+                                                    text: isAct ? "Tuning in Studio →" : "Tune & Insert →"
                                                     font.pixelSize: 9
                                                     font.bold: true
-                                                    color: isAct ? colCyan : (cardMouse.containsMouse ? colTextPrimary : "transparent")
+                                                    color: isAct ? colCyan : (cardMouse.containsMouse ? colTextPrimary : colViolet)
                                                 }
                                             }
                                         }
@@ -730,7 +965,100 @@ ApplicationWindow {
                                             anchors.fill: parent
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.selectShape(modelData)
+                                            onClicked: root.selectAsset(modelData)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Empty State when no models match category or search
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: Math.min(520, parent.width - 40)
+                                height: 230
+                                radius: 18
+                                color: colGlassCard
+                                border.width: 1
+                                border.color: colBorderSubtle
+                                visible: modelCardsRepeater.count === 0
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 12
+
+                                    Rectangle {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        width: 54; height: 54; radius: 27
+                                        color: Qt.rgba(0, 0.95, 1, 0.12)
+                                        border.width: 1; border.color: colCyan
+                                        FAIcon {
+                                            anchors.centerIn: parent
+                                            text: fa.folder
+                                            font.pixelSize: 22
+                                            color: colCyan
+                                        }
+                                    }
+
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: root.activeCategory === "all" ? "No 3D Models in /models/" : ("No models in category: " + root.activeCategory.toUpperCase())
+                                        font.pixelSize: 15
+                                        font.bold: true
+                                        color: "#FFFFFF"
+                                    }
+
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "Drop your .skp files into /models/" + (root.activeCategory === "all" ? "<category>/" : (root.activeCategory + "/")) + " and click Scan /models/"
+                                        font.pixelSize: 11
+                                        color: colTextSecondary
+                                    }
+
+                                    RowLayout {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        spacing: 10
+
+                                        Rectangle {
+                                            height: 32
+                                            implicitWidth: empOpenTxt.implicitWidth + 24
+                                            radius: 16
+                                            color: empOpenM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.25) : Qt.rgba(0, 0.95, 1, 0.15)
+                                            border.width: 1; border.color: colCyan
+                                            Text {
+                                                id: empOpenTxt
+                                                anchors.centerIn: parent
+                                                text: "Open /models/ Folder"
+                                                font.pixelSize: 11; font.bold: true; color: colCyan
+                                            }
+                                            MouseArea {
+                                                id: empOpenM
+                                                anchors.fill: parent
+                                                hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: backend.openModelsFolder()
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            height: 32
+                                            implicitWidth: empScanTxt.implicitWidth + 24
+                                            radius: 16
+                                            color: empScanM.containsMouse ? Qt.rgba(255, 255, 255, 0.15) : Qt.rgba(255, 255, 255, 0.08)
+                                            border.width: 1; border.color: colBorderSubtle
+                                            Text {
+                                                id: empScanTxt
+                                                anchors.centerIn: parent
+                                                text: "Scan /models/"
+                                                font.pixelSize: 11; font.bold: true; color: colTextPrimary
+                                            }
+                                            MouseArea {
+                                                id: empScanM
+                                                anchors.fill: parent
+                                                hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    backend.refreshLibrary()
+                                                    root.loadAssets()
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -916,625 +1244,6 @@ ApplicationWindow {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // RIGHT SETTINGS INSPECTOR DRAWER WITH LIVE PREVIEW CANVAS
-            // -----------------------------------------------------------------
-            Rectangle {
-                id: inspectorDrawer
-                Layout.preferredWidth: (root.shapeDrawerOpen && root.selectedShape !== null) ? (root.shapeDrawerFullWidth ? parent.width : 400) : 0
-                Layout.fillWidth: root.shapeDrawerFullWidth
-                Layout.fillHeight: true
-                visible: (root.shapeDrawerOpen && root.selectedShape !== null)
-                color: "#090D18"
-                border.width: 1
-                border.color: colBorderLight
-                clip: true
-
-                Behavior on Layout.preferredWidth {
-                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
-                }
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 18
-                    spacing: 12
-
-                    // Drawer Header
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        Rectangle {
-                            width: 38; height: 38; radius: 10
-                            gradient: Gradient {
-                                GradientStop { position: 0.0; color: colCyan }
-                                GradientStop { position: 1.0; color: colViolet }
-                            }
-                            FAIcon {
-                                anchors.centerIn: parent
-                                text: root.selectedShape ? root.selectedShape.icon : fa.cube
-                                font.pixelSize: 16
-                                color: "#05070B"
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 1
-
-                            RowLayout {
-                                spacing: 6
-                                Text {
-                                    text: root.selectedShape ? root.selectedShape.name : "Parametric Shape"
-                                    font.pixelSize: 13
-                                    font.bold: true
-                                    color: "#FFFFFF"
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-                                Rectangle {
-                                    height: 16
-                                    implicitWidth: dCatTag.implicitWidth + 8
-                                    radius: 8
-                                    color: Qt.rgba(0, 0.95, 1, 0.15)
-                                    border.width: 1
-                                    border.color: colCyan
-                                    Text {
-                                        id: dCatTag
-                                        anchors.centerIn: parent
-                                        text: root.selectedShape ? root.selectedShape.category.toUpperCase() : ""
-                                        font.pixelSize: 7
-                                        font.bold: true
-                                        color: colCyan
-                                    }
-                                }
-                            }
-
-                            Text {
-                                text: root.selectedShape ? root.selectedShape.desc : ""
-                                font.pixelSize: 9
-                                color: colTextSecondary
-                                wrapMode: Text.Wrap
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                        }
-
-                        // Full-Width / Side Panel Mode Toggle Button
-                        Rectangle {
-                            height: 26
-                            implicitWidth: fwTxt.implicitWidth + 18
-                            radius: 13
-                            color: root.shapeDrawerFullWidth ? Qt.rgba(0, 0.95, 1, 0.20) : (drwExpM.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05))
-                            border.width: 1
-                            border.color: root.shapeDrawerFullWidth ? colCyan : colBorderSubtle
-
-                            RowLayout {
-                                anchors.centerIn: parent
-                                spacing: 5
-                                FAIcon {
-                                    text: root.shapeDrawerFullWidth ? fa.boxes : fa.sliders
-                                    font.pixelSize: 9
-                                    color: root.shapeDrawerFullWidth ? colCyan : colTextSecondary
-                                }
-                                Text {
-                                    id: fwTxt
-                                    text: root.shapeDrawerFullWidth ? "Side Panel" : "Full Width"
-                                    font.pixelSize: 9
-                                    font.bold: true
-                                    color: root.shapeDrawerFullWidth ? colCyan : colTextPrimary
-                                }
-                            }
-
-                            MouseArea {
-                                id: drwExpM
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: root.shapeDrawerFullWidth = !root.shapeDrawerFullWidth
-                            }
-                        }
-
-                        // Close Drawer Button
-                        Rectangle {
-                            width: 28; height: 28; radius: 14
-                            color: drwCloseM.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05)
-                            border.width: 1
-                            border.color: colBorderSubtle
-
-                            FAIcon { anchors.centerIn: parent; text: fa.xmark; font.pixelSize: 10; color: colTextPrimary }
-
-                            MouseArea {
-                                id: drwCloseM
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: root.closeDrawer()
-                            }
-                        }
-                    }
-
-                    // ---------------------------------------------------------
-                    // LIVE 2.5D GEOMETRIC PREVIEW CANVAS (Prompt: "what about showing the live preview")
-                    // ---------------------------------------------------------
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: root.shapeDrawerFullWidth ? 200 : 135
-                        radius: 12
-                        color: Qt.rgba(0, 0, 0, 0.50)
-                        border.width: 1
-                        border.color: colBorderSubtle
-                        clip: true
-
-                        RowLayout {
-                            anchors.top: parent.top
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.margins: 8
-                            z: 2
-
-                            Text {
-                                text: "LIVE 2.5D PREVIEW"
-                                font.pixelSize: 8
-                                font.bold: true
-                                font.letterSpacing: 0.8
-                                color: colViolet
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            Text {
-                                text: {
-                                    if (!root.selectedShape) return ""
-                                    var p = root.currentParamValues
-                                    var w = p["width"] || p["length"] || p["size"] || p["base_size"] || p["base_w"] || p["span"] || p["radius"] || 1.0
-                                    var d = p["depth"] || p["width"] || p["projection"] || p["top_w"] || 1.0
-                                    var h = p["height"] || p["rise"] || p["thickness"] || (p["steps"] ? p["steps"] * 0.18 : 1.0) || 1.0
-                                    return Number(w).toFixed(1) + " × " + Number(d).toFixed(1) + " × " + Number(h).toFixed(1) + "m"
-                                }
-                                font.pixelSize: 8
-                                font.bold: true
-                                color: colCyan
-                            }
-                        }
-
-                        Canvas {
-                            id: liveShapeCanvas
-                            anchors.fill: parent
-                            anchors.topMargin: 16
-
-                            property var params: root.currentParamValues
-                            property var shapeObj: root.selectedShape
-
-                            onParamsChanged: requestPaint()
-                            onShapeObjChanged: requestPaint()
-
-                            onPaint: {
-                                var ctx = getContext("2d")
-                                ctx.clearRect(0, 0, width, height)
-                                if (!shapeObj) return
-
-                                var p = params || {}
-                                var cat = shapeObj.category || "primitives"
-                                var sid = shapeObj.id || ""
-
-                                var cx = width / 2.0
-                                var cy = height / 2.0 + 16
-
-                                var wVal = Number(p["width"] || p["length"] || p["size"] || p["base_size"] || p["base_w"] || p["span"] || 2.5)
-                                var dVal = Number(p["depth"] || p["projection"] || p["tread"] || p["radius"] || (wVal * 0.7) || 2.0)
-                                var hVal = Number(p["height"] || p["rise"] || p["thickness"] || (p["steps"] ? p["steps"] * 0.18 : 2.5) || 2.5)
-
-                                var maxDim = Math.max(wVal, dVal, hVal, 1.5)
-                                var scale = Math.min((width * 0.45) / maxDim, (height * 0.55) / maxDim)
-
-                                var sw = Math.max(12, wVal * scale * 0.866)
-                                var sd = Math.max(10, dVal * scale * 0.866)
-                                var sh = Math.max(14, hVal * scale * 1.0)
-
-                                if (cat === "stairs" || sid.indexOf("stair") !== -1 || sid.indexOf("step") !== -1) {
-                                    var nSteps = Math.min(14, Math.max(4, Math.round(Number(p["steps"] || 10))))
-                                    var rStep = (sh * 0.85) / nSteps
-                                    var tStep = (sw * 1.2) / nSteps
-                                    var startX = cx - (sw * 0.6)
-                                    var startY = cy + (sh * 0.4)
-                                    var depthOffset = sd * 0.35
-
-                                    ctx.beginPath()
-                                    var curX = startX
-                                    var curY = startY
-                                    ctx.moveTo(curX, curY)
-                                    for (var i = 0; i < nSteps; i++) {
-                                        curY -= rStep
-                                        ctx.lineTo(curX, curY)
-                                        curX += tStep
-                                        ctx.lineTo(curX, curY)
-                                    }
-                                    ctx.lineTo(curX, startY)
-                                    ctx.closePath()
-                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#00F5FF"
-                                    ctx.lineWidth = 1.8
-                                    ctx.stroke()
-
-                                    ctx.beginPath()
-                                    curX = startX
-                                    curY = startY
-                                    for (var j = 0; j < nSteps; j++) {
-                                        curY -= rStep
-                                        ctx.moveTo(curX, curY)
-                                        ctx.lineTo(curX + depthOffset, curY - (depthOffset * 0.4))
-                                        curX += tStep
-                                        ctx.lineTo(curX + depthOffset, curY - (depthOffset * 0.4))
-                                        ctx.lineTo(curX, curY)
-                                    }
-                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.8)"
-                                    ctx.lineWidth = 1.2
-                                    ctx.stroke()
-                                } else if (cat === "columns" || sid.indexOf("col_") !== -1 || sid.indexOf("cyl") !== -1 || sid.indexOf("pipe") !== -1 || sid.indexOf("cone") !== -1) {
-                                    var rPix = Math.max(14, (wVal / 2.0) * scale * 0.9)
-                                    var topY = cy - (sh * 0.45)
-                                    var botY = cy + (sh * 0.35)
-
-                                    // Bottom ellipse
-                                    ctx.save()
-                                    ctx.translate(cx, botY)
-                                    ctx.scale(1, 0.35)
-                                    ctx.beginPath()
-                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
-                                    ctx.restore()
-                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#00F5FF"
-                                    ctx.lineWidth = 1.5
-                                    ctx.stroke()
-
-                                    // Side profile lines
-                                    ctx.beginPath()
-                                    ctx.moveTo(cx - rPix, botY); ctx.lineTo(cx - rPix, topY)
-                                    ctx.moveTo(cx + rPix, botY); ctx.lineTo(cx + rPix, topY)
-                                    ctx.strokeStyle = "rgba(0, 245, 255, 0.7)"
-                                    ctx.lineWidth = 1.5
-                                    ctx.stroke()
-
-                                    // Top ellipse
-                                    ctx.save()
-                                    ctx.translate(cx, topY)
-                                    ctx.scale(1, 0.35)
-                                    ctx.beginPath()
-                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
-                                    ctx.restore()
-                                    ctx.fillStyle = "rgba(139, 92, 246, 0.25)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#8B5CF6"
-                                    ctx.lineWidth = 1.8
-                                    ctx.stroke()
-                                } else if (sid.indexOf("sphere") !== -1 || sid.indexOf("dome") !== -1 || sid.indexOf("globe") !== -1) {
-                                    var rPix = Math.max(16, (wVal / 2.0) * scale * 1.1)
-
-                                    ctx.beginPath()
-                                    ctx.arc(cx, cy, rPix, 0, 2 * Math.PI)
-                                    ctx.fillStyle = "rgba(0, 245, 255, 0.08)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#00F5FF"
-                                    ctx.lineWidth = 1.6
-                                    ctx.stroke()
-
-                                    ctx.save()
-                                    ctx.translate(cx, cy)
-                                    ctx.scale(1, 0.35)
-                                    ctx.beginPath()
-                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
-                                    ctx.restore()
-                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.7)"
-                                    ctx.lineWidth = 1.4
-                                    ctx.stroke()
-
-                                    ctx.save()
-                                    ctx.translate(cx, cy)
-                                    ctx.scale(0.35, 1)
-                                    ctx.beginPath()
-                                    ctx.arc(0, 0, rPix, 0, 2 * Math.PI)
-                                    ctx.restore()
-                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.5)"
-                                    ctx.lineWidth = 1.2
-                                    ctx.stroke()
-                                } else if (cat === "roofs" || sid.indexOf("roof") !== -1 || sid.indexOf("truss") !== -1 || sid.indexOf("gable") !== -1) {
-                                    var halfW = sw * 0.85
-                                    var apexY = cy - (sh * 0.5)
-                                    var baseLeftX = cx - halfW
-                                    var baseRightX = cx + halfW
-                                    var baseFrontY = cy + (sh * 0.35)
-                                    var ridgeDx = -sd * 0.45
-                                    var ridgeDy = -sd * 0.25
-
-                                    ctx.beginPath()
-                                    ctx.moveTo(baseLeftX, baseFrontY)
-                                    ctx.lineTo(cx, apexY)
-                                    ctx.lineTo(baseRightX, baseFrontY)
-                                    ctx.closePath()
-                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#00F5FF"
-                                    ctx.lineWidth = 1.8
-                                    ctx.stroke()
-
-                                    ctx.beginPath()
-                                    ctx.moveTo(cx, apexY)
-                                    ctx.lineTo(cx + ridgeDx, apexY + ridgeDy)
-                                    ctx.lineTo(baseRightX + ridgeDx, baseFrontY + ridgeDy)
-                                    ctx.lineTo(baseRightX, baseFrontY)
-                                    ctx.closePath()
-                                    ctx.fillStyle = "rgba(139, 92, 246, 0.20)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#8B5CF6"
-                                    ctx.lineWidth = 1.5
-                                    ctx.stroke()
-
-                                    ctx.beginPath()
-                                    ctx.moveTo(cx + ridgeDx, apexY + ridgeDy)
-                                    ctx.lineTo(baseLeftX + ridgeDx, baseFrontY + ridgeDy)
-                                    ctx.lineTo(baseLeftX, baseFrontY)
-                                    ctx.strokeStyle = "rgba(139, 92, 246, 0.6)"
-                                    ctx.lineWidth = 1.2
-                                    ctx.stroke()
-                                } else {
-                                    // Universal 2.5D Isometric Prism
-                                    var bx = cx
-                                    var by = cy + (sh * 0.35)
-                                    var rx = sw * 0.866
-                                    var ry = sw * 0.4
-                                    var lx = -sd * 0.866
-                                    var ly = sd * 0.4
-
-                                    ctx.beginPath()
-                                    ctx.moveTo(bx, by - sh)
-                                    ctx.lineTo(bx + rx, by - ry - sh)
-                                    ctx.lineTo(bx + rx + lx, by - ry - ly - sh)
-                                    ctx.lineTo(bx + lx, by - ly - sh)
-                                    ctx.closePath()
-                                    ctx.fillStyle = "rgba(139, 92, 246, 0.2)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#8B5CF6"
-                                    ctx.lineWidth = 1.8
-                                    ctx.stroke()
-
-                                    ctx.beginPath()
-                                    ctx.moveTo(bx, by)
-                                    ctx.lineTo(bx + rx, by - ry)
-                                    ctx.lineTo(bx + rx, by - ry - sh)
-                                    ctx.lineTo(bx, by - sh)
-                                    ctx.closePath()
-                                    ctx.fillStyle = "rgba(0, 245, 255, 0.12)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "#00F5FF"
-                                    ctx.lineWidth = 1.5
-                                    ctx.stroke()
-
-                                    ctx.beginPath()
-                                    ctx.moveTo(bx, by)
-                                    ctx.lineTo(bx + lx, by - ly)
-                                    ctx.lineTo(bx + lx, by - ly - sh)
-                                    ctx.lineTo(bx, by - sh)
-                                    ctx.closePath()
-                                    ctx.fillStyle = "rgba(0, 245, 255, 0.06)"
-                                    ctx.fill()
-                                    ctx.strokeStyle = "rgba(0, 245, 255, 0.7)"
-                                    ctx.lineWidth = 1.5
-                                    ctx.stroke()
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
-
-                    // Scrollable Parameter Sliders List
-                    ScrollView {
-                        id: paramsScrollView
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        contentWidth: availableWidth
-
-                        ColumnLayout {
-                            width: paramsScrollView.availableWidth
-                            spacing: 12
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Text {
-                                    text: "PARAMETRIC SPECIFICATIONS"
-                                    font.pixelSize: 9
-                                    font.bold: true
-                                    font.letterSpacing: 0.8
-                                    color: colCyan
-                                }
-                                Item { Layout.fillWidth: true }
-                                Text {
-                                    text: "Live visual tuning"
-                                    font.pixelSize: 9
-                                    color: colTextMuted
-                                }
-                            }
-
-                            Repeater {
-                                model: root.selectedShape ? root.selectedShape.params : []
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    width: paramsScrollView.availableWidth
-                                    height: 60
-                                    radius: 10
-                                    color: Qt.rgba(1, 1, 1, 0.04)
-                                    border.width: 1
-                                    border.color: colBorderSubtle
-
-                                    property real curVal: (root.currentParamValues[modelData.key] !== undefined) ? root.currentParamValues[modelData.key] : modelData.val
-
-                                    ColumnLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 10
-                                        anchors.rightMargin: 10
-                                        anchors.topMargin: 6
-                                        anchors.bottomMargin: 6
-                                        spacing: 2
-
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            Text {
-                                                text: modelData.name
-                                                font.pixelSize: 10
-                                                font.bold: true
-                                                color: colTextPrimary
-                                            }
-                                            Item { Layout.fillWidth: true }
-                                            Text {
-                                                text: (modelData.step >= 1 ? parent.parent.parent.curVal.toFixed(0) : parent.parent.parent.curVal.toFixed(2)) + " " + modelData.unit
-                                                font.pixelSize: 10
-                                                font.bold: true
-                                                color: colCyan
-                                            }
-                                        }
-
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 6
-
-                                            // Stepper -
-                                            Rectangle {
-                                                width: 22; height: 22; radius: 5
-                                                color: stepMinM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
-                                                border.width: 1; border.color: colBorderSubtle
-                                                FAIcon { anchors.centerIn: parent; text: fa.minus; font.pixelSize: 8; color: colTextPrimary }
-                                                MouseArea {
-                                                    id: stepMinM
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        var nv = Math.max(modelData.min, parent.parent.parent.parent.curVal - modelData.step)
-                                                        root.updateShapeParam(modelData.key, nv)
-                                                        liveShapeCanvas.requestPaint()
-                                                    }
-                                                }
-                                            }
-
-                                            Slider {
-                                                id: paramSlider
-                                                Layout.fillWidth: true
-                                                from: modelData.min
-                                                to: modelData.max
-                                                stepSize: modelData.step
-                                                value: parent.parent.parent.curVal
-                                                onMoved: {
-                                                    root.updateShapeParam(modelData.key, value)
-                                                    liveShapeCanvas.requestPaint()
-                                                }
-                                            }
-
-                                            // Stepper +
-                                            Rectangle {
-                                                width: 22; height: 22; radius: 5
-                                                color: stepPluM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
-                                                border.width: 1; border.color: colBorderSubtle
-                                                FAIcon { anchors.centerIn: parent; text: fa.plus; font.pixelSize: 8; color: colTextPrimary }
-                                                MouseArea {
-                                                    id: stepPluM
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        var nv = Math.min(modelData.max, parent.parent.parent.parent.curVal + modelData.step)
-                                                        root.updateShapeParam(modelData.key, nv)
-                                                        liveShapeCanvas.requestPaint()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Reset Defaults Button
-                            Rectangle {
-                                Layout.alignment: Qt.AlignRight
-                                height: 22
-                                implicitWidth: rstTxt.implicitWidth + 14
-                                radius: 11
-                                color: rstM.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
-                                border.width: 1
-                                border.color: colBorderSubtle
-
-                                RowLayout {
-                                    anchors.centerIn: parent
-                                    spacing: 5
-                                    FAIcon { text: fa.sync; font.pixelSize: 8; color: colTextSecondary }
-                                    Text {
-                                        id: rstTxt
-                                        text: "Reset Defaults"
-                                        font.pixelSize: 9
-                                        color: colTextSecondary
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: rstM
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (root.selectedShape) {
-                                            var vals = {}
-                                            for (var i = 0; i < root.selectedShape.params.length; i++) {
-                                                var p = root.selectedShape.params[i]
-                                                vals[p.key] = p.val
-                                            }
-                                            root.currentParamValues = vals
-                                            liveShapeCanvas.requestPaint()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
-
-                    // Drawer Action Button (Bottom Fixed)
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: 42
-                        radius: 12
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: mBuildM.containsMouse ? "#2DFEFF" : colCyan }
-                            GradientStop { position: 1.0; color: "#5E17EB" }
-                        }
-
-                        RowLayout {
-                            anchors.centerIn: parent
-                            spacing: 8
-                            FAIcon { text: fa.bolt; font.pixelSize: 12; color: "#FFFFFF" }
-                            Text {
-                                text: "BUILD IN SKETCHUP 2026"
-                                font.pixelSize: 11
-                                font.bold: true
-                                font.letterSpacing: 0.8
-                                color: "#FFFFFF"
-                            }
-                        }
-
-                        MouseArea {
-                            id: mBuildM
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.buildSelectedShape()
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -1727,6 +1436,1002 @@ ApplicationWindow {
                 }
                 Text { anchors.centerIn: parent; text: "Close Guide"; font.pixelSize: 11; font.bold: true; color: "#05070B" }
                 MouseArea { anchors.fill: parent; onClicked: infoDrawerOpen = false }
+            }
+        }
+    }
+
+
+    // =========================================================================
+    // 3D MODEL SPECIFICATION & LIVE PREVIEW MODAL DIALOG
+    // =========================================================================
+    Rectangle {
+        id: modelModalOverlay
+        anchors.fill: parent
+        z: 9998
+        visible: root.modelModalOpen && root.selectedAsset !== null
+        opacity: visible ? 1.0 : 0.0
+        color: Qt.rgba(0.02, 0.04, 0.08, 0.86)
+        Behavior on opacity { NumberAnimation { duration: 160 } }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.closeModelModal()
+        }
+
+        Rectangle {
+            id: modalContainer
+            anchors.centerIn: parent
+            width: Math.min(1080, root.width - 48)
+            height: Math.min(680, root.height - 48)
+            radius: 20
+            color: "#090D18"
+            border.width: 1
+            border.color: colCyan
+            clip: true
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {}
+            }
+
+            property int modalPreviewTab: 0 // 0: Rendered Image, 1: 3D Orientation Gimbal
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 12
+
+                // -------------------------------------------------------------
+                // 1. MODAL HEADER
+                // -------------------------------------------------------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    Rectangle {
+                        width: 44; height: 44; radius: 10
+                        color: Qt.rgba(0, 0, 0, 0.50)
+                        border.width: 1; border.color: colCyan
+                        clip: true
+
+                        Image {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            source: (root.selectedAsset && root.selectedAsset.thumbnail) ? ("file://" + root.selectedAsset.thumbnail) : ""
+                            fillMode: Image.PreserveAspectFit
+                            visible: root.selectedAsset && root.selectedAsset.thumbnail !== "" && status === Image.Ready
+                        }
+                        FAIcon {
+                            anchors.centerIn: parent
+                            visible: !(root.selectedAsset && root.selectedAsset.thumbnail !== "")
+                            text: (root.selectedAsset && root.selectedAsset.ext === "SKP") ? fa.cube : fa.folder
+                            font.pixelSize: 18
+                            color: colCyan
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        RowLayout {
+                            spacing: 8
+                            Text {
+                                text: root.selectedAsset ? root.selectedAsset.name : "3D Model Specification"
+                                font.pixelSize: 15
+                                font.bold: true
+                                color: "#FFFFFF"
+                                elide: Text.ElideRight
+                            }
+                            Rectangle {
+                                height: 18
+                                implicitWidth: mExtTag.implicitWidth + 10
+                                radius: 9
+                                color: Qt.rgba(0, 0.95, 1, 0.18)
+                                border.width: 1; border.color: colCyan
+                                Text {
+                                    id: mExtTag
+                                    anchors.centerIn: parent
+                                    text: root.selectedAsset ? (root.selectedAsset.ext || "SKP").toUpperCase() : "SKP"
+                                    font.pixelSize: 8; font.bold: true; color: colCyan
+                                }
+                            }
+                            Rectangle {
+                                height: 18
+                                implicitWidth: mCatTag.implicitWidth + 10
+                                radius: 9
+                                color: Qt.rgba(139, 92, 246, 0.18)
+                                border.width: 1; border.color: colViolet
+                                Text {
+                                    id: mCatTag
+                                    anchors.centerIn: parent
+                                    text: root.selectedAsset ? ((root.selectedAsset.category_name || root.selectedAsset.category || "").toUpperCase()) : ""
+                                    font.pixelSize: 8; font.bold: true; color: colViolet
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: root.selectedAsset ? (root.selectedAsset.filename + " • " + root.selectedAsset.size + " • " + (root.selectedAsset.path || "")) : ""
+                            font.pixelSize: 9
+                            color: colTextSecondary
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    // Close Button
+                    Rectangle {
+                        width: 32; height: 32; radius: 16
+                        color: mCloseM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.06)
+                        border.width: 1; border.color: colBorderSubtle
+                        FAIcon { anchors.centerIn: parent; text: fa.xmark; font.pixelSize: 11; color: colTextPrimary }
+                        MouseArea {
+                            id: mCloseM
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.closeModelModal()
+                        }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
+
+                // -------------------------------------------------------------
+                // 2. TWO-COLUMN SPLIT: PREVIEW (LEFT) + SPECIFICATIONS (RIGHT)
+                // -------------------------------------------------------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 16
+
+                    // =========================================================
+                    // LEFT COLUMN: DUAL LIVE PREVIEW (PHOTO & 3D GIMBAL)
+                    // =========================================================
+                    ColumnLayout {
+                        Layout.preferredWidth: Math.min(480, Math.floor(modalContainer.width * 0.46))
+                        Layout.fillHeight: true
+                        spacing: 8
+
+                        // Preview Mode Switcher Tabs
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 28
+                                radius: 8
+                                color: modalContainer.modalPreviewTab === 0 ? Qt.rgba(0, 0.95, 1, 0.22) : Qt.rgba(1, 1, 1, 0.05)
+                                border.width: modalContainer.modalPreviewTab === 0 ? 1 : 0
+                                border.color: colCyan
+
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 6
+                                    FAIcon { text: fa.camera; font.pixelSize: 10; color: modalContainer.modalPreviewTab === 0 ? colCyan : colTextSecondary }
+                                    Text {
+                                        text: "RENDERED IMAGE PREVIEW"
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                        color: modalContainer.modalPreviewTab === 0 ? colCyan : colTextSecondary
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: modalContainer.modalPreviewTab = 0
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 28
+                                radius: 8
+                                color: modalContainer.modalPreviewTab === 1 ? Qt.rgba(139, 92, 246, 0.22) : Qt.rgba(1, 1, 1, 0.05)
+                                border.width: modalContainer.modalPreviewTab === 1 ? 1 : 0
+                                border.color: colViolet
+
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 6
+                                    FAIcon { text: fa.cube; font.pixelSize: 10; color: modalContainer.modalPreviewTab === 1 ? colViolet : colTextSecondary }
+                                    Text {
+                                        text: "3D ORIENTATION GIMBAL"
+                                        font.pixelSize: 9
+                                        font.bold: true
+                                        color: modalContainer.modalPreviewTab === 1 ? colViolet : colTextSecondary
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        modalContainer.modalPreviewTab = 1
+                                        modalGimbalCanvas.requestPaint()
+                                    }
+                                }
+                            }
+                        }
+
+                        // Live Viewport Display Box
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 14
+                            color: Qt.rgba(0, 0, 0, 0.60)
+                            border.width: 1
+                            border.color: colBorderSubtle
+                            clip: true
+
+                            // 1. Rendered Image Viewport
+                            Item {
+                                anchors.fill: parent
+                                visible: modalContainer.modalPreviewTab === 0
+
+                                RowLayout {
+                                    anchors.top: parent.top
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.margins: 10
+                                    z: 3
+
+                                    Rectangle {
+                                        height: 18
+                                        implicitWidth: mImgPill.implicitWidth + 12
+                                        radius: 9
+                                        color: Qt.rgba(0, 0, 0, 0.70)
+                                        border.width: 1; border.color: Qt.rgba(0, 0.95, 1, 0.4)
+                                        Text {
+                                            id: mImgPill
+                                            anchors.centerIn: parent
+                                            text: "SKETCHUP NATIVE PREVIEW"
+                                            font.pixelSize: 8; font.bold: true; color: colCyan
+                                        }
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: (root.selectedAsset ? (root.selectedAsset.ext || "SKP") : "") + " MODEL"
+                                        font.pixelSize: 9; font.bold: true; color: colViolet
+                                    }
+                                }
+
+                                Image {
+                                    id: modalImgPreview
+                                    anchors.fill: parent
+                                    anchors.margins: 16
+                                    anchors.topMargin: 30
+                                    source: (root.selectedAsset && root.selectedAsset.thumbnail) ? ("file://" + root.selectedAsset.thumbnail) : ""
+                                    fillMode: Image.PreserveAspectFit
+                                    smooth: true
+                                    visible: root.selectedAsset && root.selectedAsset.thumbnail !== "" && status === Image.Ready
+                                }
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    visible: !modalImgPreview.visible
+                                    spacing: 10
+                                    FAIcon {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: (root.selectedAsset && root.selectedAsset.ext === "SKP") ? fa.cube : fa.folder
+                                        font.pixelSize: 48
+                                        color: Qt.rgba(1, 1, 1, 0.25)
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: root.selectedAsset ? root.selectedAsset.filename : "No Image Detected"
+                                        font.pixelSize: 11
+                                        color: colTextMuted
+                                    }
+                                }
+                            }
+
+                            // 2. 3D Orientation Gimbal Canvas Viewport
+                            Item {
+                                anchors.fill: parent
+                                visible: modalContainer.modalPreviewTab === 1
+
+                                RowLayout {
+                                    anchors.top: parent.top
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.margins: 10
+                                    z: 3
+
+                                    Rectangle {
+                                        height: 18
+                                        implicitWidth: mGmbPill.implicitWidth + 12
+                                        radius: 9
+                                        color: Qt.rgba(0, 0, 0, 0.70)
+                                        border.width: 1; border.color: Qt.rgba(139, 92, 246, 0.5)
+                                        Text {
+                                            id: mGmbPill
+                                            anchors.centerIn: parent
+                                            text: "3D ORIENTATION GIMBAL"
+                                            font.pixelSize: 8; font.bold: true; color: colViolet
+                                        }
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: "Yaw: " + Math.round(root.currentParamValues["rot_z"] || 0) + "° • Scale: " + Number(root.currentParamValues["scale"] || 1.0).toFixed(2) + "x"
+                                        font.pixelSize: 9; font.bold: true; color: colCyan
+                                    }
+                                }
+
+                                Canvas {
+                                    id: modalGimbalCanvas
+                                    anchors.fill: parent
+                                    anchors.topMargin: 20
+
+                                    property var params: root.currentParamValues
+                                    property var assetObj: root.selectedAsset
+
+                                    onParamsChanged: requestPaint()
+                                    onAssetObjChanged: requestPaint()
+
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        ctx.clearRect(0, 0, width, height)
+                                        var cx = width / 2.0
+                                        var cy = height / 2.0 + 12
+
+                                        var p = params || {}
+                                        var scaleVal = Number(p["scale"] || 1.0)
+                                        var rotDeg = Number(p["rot_z"] || 0.0)
+                                        var rad = rotDeg * Math.PI / 180.0
+                                        var elevZ = Number(p["pos_z"] || 0.0)
+
+                                        // Ground grid
+                                        ctx.lineWidth = 1.0
+                                        ctx.strokeStyle = "rgba(255, 255, 255, 0.06)"
+                                        var gridSteps = 4
+                                        var sp = 26
+                                        for (var gx = -gridSteps; gx <= gridSteps; gx++) {
+                                            var x1 = cx + (gx * sp * 0.866) - (gridSteps * sp * 0.866)
+                                            var y1 = cy + (gx * sp * 0.45) + (gridSteps * sp * 0.45)
+                                            var x2 = cx + (gx * sp * 0.866) + (gridSteps * sp * 0.866)
+                                            var y2 = cy + (gx * sp * 0.45) - (gridSteps * sp * 0.45)
+                                            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+
+                                            var x3 = cx - (gridSteps * sp * 0.866) + (gx * sp * 0.866)
+                                            var y3 = cy - (gridSteps * sp * 0.45) + (gx * sp * 0.45)
+                                            var x4 = cx + (gridSteps * sp * 0.866) + (gx * sp * 0.866)
+                                            var y4 = cy + (gridSteps * sp * 0.45) + (gx * sp * 0.45)
+                                            ctx.beginPath(); ctx.moveTo(x3, y3); ctx.lineTo(x4, y4); ctx.stroke()
+                                        }
+
+                                        // Coordinate Axes:
+                                        // +X (Red)
+                                        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + 65 * 0.866, cy + 65 * 0.45)
+                                        ctx.strokeStyle = "#EF4444"; ctx.lineWidth = 2.0; ctx.stroke()
+                                        ctx.fillStyle = "#EF4444"; ctx.font = "bold 9px sans-serif"; ctx.fillText("+X", cx + 58, cy + 34)
+
+                                        // +Y (Green)
+                                        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx - 65 * 0.866, cy + 65 * 0.45)
+                                        ctx.strokeStyle = "#10B981"; ctx.lineWidth = 2.0; ctx.stroke()
+                                        ctx.fillStyle = "#10B981"; ctx.font = "bold 9px sans-serif"; ctx.fillText("+Y", cx - 72, cy + 34)
+
+                                        // +Z (Cyan)
+                                        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 65)
+                                        ctx.strokeStyle = "#00F5FF"; ctx.lineWidth = 2.0; ctx.stroke()
+                                        ctx.fillStyle = "#00F5FF"; ctx.font = "bold 9px sans-serif"; ctx.fillText("+Z", cx + 6, cy - 54)
+
+                                        // 3D Bounding Box Projection
+                                        var bw = 30 * Math.min(2.2, Math.max(0.4, scaleVal))
+                                        var bd = 22 * Math.min(2.2, Math.max(0.4, scaleVal))
+                                        var bh = 40 * Math.min(2.2, Math.max(0.4, scaleVal))
+                                        var elevOffset = Math.min(45, elevZ * 2.8)
+
+                                        var cosA = Math.cos(rad)
+                                        var sinA = Math.sin(rad)
+
+                                        function iso(lx, ly, lz) {
+                                            var rx = lx * cosA - ly * sinA
+                                            var ry = lx * sinA + ly * cosA
+                                            var px = cx + (rx - ry) * 0.866
+                                            var py = (cy - elevOffset) + (rx + ry) * 0.45 - lz
+                                            return { x: px, y: py }
+                                        }
+
+                                        var b1 = iso(-bw, -bd, 0); var b2 = iso(bw, -bd, 0)
+                                        var b3 = iso(bw, bd, 0); var b4 = iso(-bw, bd, 0)
+                                        var t1 = iso(-bw, -bd, bh); var t2 = iso(bw, -bd, bh)
+                                        var t3 = iso(bw, bd, bh); var t4 = iso(-bw, bd, bh)
+
+                                        // Ground drop shadow
+                                        if (elevOffset > 2) {
+                                            var g1 = iso(-bw, -bd, 0); var g2 = iso(bw, -bd, 0)
+                                            var g3 = iso(bw, bd, 0); var g4 = iso(-bw, bd, 0)
+                                            ctx.beginPath()
+                                            ctx.moveTo(g1.x, g1.y + elevOffset); ctx.lineTo(g2.x, g2.y + elevOffset)
+                                            ctx.lineTo(g3.x, g3.y + elevOffset); ctx.lineTo(g4.x, g4.y + elevOffset)
+                                            ctx.closePath()
+                                            ctx.fillStyle = "rgba(0, 0, 0, 0.45)"
+                                            ctx.fill()
+                                        }
+
+                                        // Base face
+                                        ctx.beginPath()
+                                        ctx.moveTo(b1.x, b1.y); ctx.lineTo(b2.x, b2.y); ctx.lineTo(b3.x, b3.y); ctx.lineTo(b4.x, b4.y)
+                                        ctx.closePath()
+                                        ctx.fillStyle = "rgba(0, 245, 255, 0.10)"
+                                        ctx.fill()
+                                        ctx.strokeStyle = "rgba(0, 245, 255, 0.4)"
+                                        ctx.lineWidth = 1.2
+                                        ctx.stroke()
+
+                                        // Vertical pillars
+                                        ctx.beginPath()
+                                        ctx.moveTo(b1.x, b1.y); ctx.lineTo(t1.x, t1.y)
+                                        ctx.moveTo(b2.x, b2.y); ctx.lineTo(t2.x, t2.y)
+                                        ctx.moveTo(b3.x, b3.y); ctx.lineTo(t3.x, t3.y)
+                                        ctx.moveTo(b4.x, b4.y); ctx.lineTo(t4.x, t4.y)
+                                        ctx.strokeStyle = "rgba(0, 245, 255, 0.75)"
+                                        ctx.lineWidth = 1.5
+                                        ctx.stroke()
+
+                                        // Top face
+                                        ctx.beginPath()
+                                        ctx.moveTo(t1.x, t1.y); ctx.lineTo(t2.x, t2.y); ctx.lineTo(t3.x, t3.y); ctx.lineTo(t4.x, t4.y)
+                                        ctx.closePath()
+                                        ctx.fillStyle = "rgba(139, 92, 246, 0.30)"
+                                        ctx.fill()
+                                        ctx.strokeStyle = "#8B5CF6"
+                                        ctx.lineWidth = 2.0
+                                        ctx.stroke()
+
+                                        // Heading orientation pointer arrow on top face
+                                        var fFront = iso(0, bd, bh)
+                                        var fCenter = iso(0, 0, bh)
+                                        ctx.beginPath()
+                                        ctx.moveTo(fCenter.x, fCenter.y); ctx.lineTo(fFront.x, fFront.y)
+                                        ctx.strokeStyle = "#00F5FF"; ctx.lineWidth = 2.6; ctx.stroke()
+                                        ctx.beginPath(); ctx.arc(fFront.x, fFront.y, 3.6, 0, 2 * Math.PI)
+                                        ctx.fillStyle = "#00F5FF"; ctx.fill()
+                                    }
+                                }
+                            }
+                        }
+
+                        // Quick Ground & Origin Alignment Bar
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 28
+                                radius: 8
+                                color: mGndBtnM.containsMouse ? Qt.rgba(16, 185, 129, 0.25) : Qt.rgba(16, 185, 129, 0.12)
+                                border.width: 1; border.color: colEmerald
+
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    FAIcon { text: fa.arrowDown; font.pixelSize: 9; color: colEmerald }
+                                    Text { text: "Drop on Ground (Z=0)"; font.pixelSize: 9; font.bold: true; color: colEmerald }
+                                }
+                                MouseArea {
+                                    id: mGndBtnM; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.updateShapeParam("pos_z", 0.0)
+                                        modalGimbalCanvas.requestPaint()
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 28
+                                radius: 8
+                                color: mOrigBtnM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.25) : Qt.rgba(0, 0.95, 1, 0.12)
+                                border.width: 1; border.color: colCyan
+
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    FAIcon { text: fa.circle; font.pixelSize: 8; color: colCyan }
+                                    Text { text: "Center at Origin (0,0,0)"; font.pixelSize: 9; font.bold: true; color: colCyan }
+                                }
+                                MouseArea {
+                                    id: mOrigBtnM; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.updateShapeParam("pos_x", 0.0)
+                                        root.updateShapeParam("pos_y", 0.0)
+                                        root.updateShapeParam("pos_z", 0.0)
+                                        modalGimbalCanvas.requestPaint()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // =========================================================
+                    // RIGHT COLUMN: SPECIFICATION CONTROLS
+                    // =========================================================
+                    ScrollView {
+                        id: modalParamsScroll
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        contentWidth: availableWidth
+                        contentHeight: modalParamsCol.implicitHeight + 10
+
+                        ColumnLayout {
+                            id: modalParamsCol
+                            width: modalParamsScroll.availableWidth
+                            spacing: 12
+
+                            // 1. Uniform Scale Card
+                            Rectangle {
+                                id: mScaleCard
+                                Layout.fillWidth: true
+                                height: 86
+                                radius: 10
+                                color: Qt.rgba(1, 1, 1, 0.04)
+                                border.width: 1
+                                border.color: colBorderSubtle
+
+                                readonly property real curScale: Number(root.currentParamValues["scale"] !== undefined ? root.currentParamValues["scale"] : 1.0)
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 4
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: "Uniform Scale Factor"; font.pixelSize: 10; font.bold: true; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text {
+                                            text: mScaleCard.curScale.toFixed(2) + "x (" + Math.round(mScaleCard.curScale * 100) + "%)"
+                                            font.pixelSize: 10; font.bold: true; color: colCyan
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 4
+                                        Repeater {
+                                            model: [
+                                                { label: "0.25x", val: 0.25 },
+                                                { label: "0.5x", val: 0.50 },
+                                                { label: "1.0x", val: 1.00 },
+                                                { label: "1.5x", val: 1.50 },
+                                                { label: "2.0x", val: 2.00 },
+                                                { label: "5.0x", val: 5.00 }
+                                            ]
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                height: 20
+                                                radius: 4
+                                                color: (Math.abs(mScaleCard.curScale - modelData.val) < 0.01) ? Qt.rgba(0, 0.95, 1, 0.25) : Qt.rgba(1, 1, 1, 0.06)
+                                                border.width: (Math.abs(mScaleCard.curScale - modelData.val) < 0.01) ? 1 : 0
+                                                border.color: colCyan
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: modelData.label
+                                                    font.pixelSize: 8; font.bold: true
+                                                    color: (Math.abs(mScaleCard.curScale - modelData.val) < 0.01) ? colCyan : colTextSecondary
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.updateShapeParam("scale", modelData.val)
+                                                        modalGimbalCanvas.requestPaint()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+
+                                        Rectangle {
+                                            width: 22; height: 22; radius: 5
+                                            color: msMinM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
+                                            border.width: 1; border.color: colBorderSubtle
+                                            FAIcon { anchors.centerIn: parent; text: fa.minus; font.pixelSize: 8; color: colTextPrimary }
+                                            MouseArea {
+                                                id: msMinM; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    var nv = Math.max(0.1, mScaleCard.curScale - 0.1)
+                                                    root.updateShapeParam("scale", Number(nv.toFixed(2)))
+                                                    modalGimbalCanvas.requestPaint()
+                                                }
+                                            }
+                                        }
+
+                                        Slider {
+                                            Layout.fillWidth: true
+                                            from: 0.1; to: 5.0; stepSize: 0.05
+                                            value: mScaleCard.curScale
+                                            onMoved: {
+                                                root.updateShapeParam("scale", Number(value.toFixed(2)))
+                                                modalGimbalCanvas.requestPaint()
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            width: 22; height: 22; radius: 5
+                                            color: msPluM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
+                                            border.width: 1; border.color: colBorderSubtle
+                                            FAIcon { anchors.centerIn: parent; text: fa.plus; font.pixelSize: 8; color: colTextPrimary }
+                                            MouseArea {
+                                                id: msPluM; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    var nv = Math.min(5.0, mScaleCard.curScale + 0.1)
+                                                    root.updateShapeParam("scale", Number(nv.toFixed(2)))
+                                                    modalGimbalCanvas.requestPaint()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. Rotation Yaw Card
+                            Rectangle {
+                                id: mRotCard
+                                Layout.fillWidth: true
+                                height: 86
+                                radius: 10
+                                color: Qt.rgba(1, 1, 1, 0.04)
+                                border.width: 1
+                                border.color: colBorderSubtle
+
+                                readonly property real curRot: Number(root.currentParamValues["rot_z"] !== undefined ? root.currentParamValues["rot_z"] : 0)
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 4
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: "Rotation (Yaw / Z-Axis)"; font.pixelSize: 10; font.bold: true; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text {
+                                            text: Math.round(mRotCard.curRot) + "°"
+                                            font.pixelSize: 10; font.bold: true; color: colViolet
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 4
+                                        Repeater {
+                                            model: [
+                                                { label: "0° (North)", val: 0 },
+                                                { label: "90° (East)", val: 90 },
+                                                { label: "180° (South)", val: 180 },
+                                                { label: "270° (West)", val: 270 }
+                                            ]
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                height: 20
+                                                radius: 4
+                                                color: (Math.round(mRotCard.curRot) === modelData.val) ? Qt.rgba(139, 92, 246, 0.25) : Qt.rgba(1, 1, 1, 0.06)
+                                                border.width: (Math.round(mRotCard.curRot) === modelData.val) ? 1 : 0
+                                                border.color: colViolet
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: modelData.label
+                                                    font.pixelSize: 8; font.bold: true
+                                                    color: (Math.round(mRotCard.curRot) === modelData.val) ? colViolet : colTextSecondary
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.updateShapeParam("rot_z", modelData.val)
+                                                        modalGimbalCanvas.requestPaint()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+
+                                        Rectangle {
+                                            width: 22; height: 22; radius: 5
+                                            color: mrMinM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
+                                            border.width: 1; border.color: colBorderSubtle
+                                            FAIcon { anchors.centerIn: parent; text: fa.minus; font.pixelSize: 8; color: colTextPrimary }
+                                            MouseArea {
+                                                id: mrMinM; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    var nv = (mRotCard.curRot - 15 + 360) % 360
+                                                    root.updateShapeParam("rot_z", nv)
+                                                    modalGimbalCanvas.requestPaint()
+                                                }
+                                            }
+                                        }
+
+                                        Slider {
+                                            Layout.fillWidth: true
+                                            from: 0; to: 360; stepSize: 5
+                                            value: mRotCard.curRot
+                                            onMoved: {
+                                                root.updateShapeParam("rot_z", Math.round(value))
+                                                modalGimbalCanvas.requestPaint()
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            width: 22; height: 22; radius: 5
+                                            color: mrPluM.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
+                                            border.width: 1; border.color: colBorderSubtle
+                                            FAIcon { anchors.centerIn: parent; text: fa.plus; font.pixelSize: 8; color: colTextPrimary }
+                                            MouseArea {
+                                                id: mrPluM; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    var nv = (mRotCard.curRot + 15) % 360
+                                                    root.updateShapeParam("rot_z", nv)
+                                                    modalGimbalCanvas.requestPaint()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. Position & Elevation Coordinates Card
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 136
+                                radius: 10
+                                color: Qt.rgba(1, 1, 1, 0.04)
+                                border.width: 1
+                                border.color: colBorderSubtle
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 5
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: "Scene Placement Coordinates"; font.pixelSize: 10; font.bold: true; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: "World Coordinates (m)"; font.pixelSize: 8; color: colTextMuted }
+                                    }
+
+                                    // Position X Slider
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+                                        Text { text: "X Offset:"; font.pixelSize: 9; color: "#EF4444"; width: 44 }
+                                        Slider {
+                                            Layout.fillWidth: true
+                                            from: -25.0; to: 25.0; stepSize: 0.25
+                                            value: Number(root.currentParamValues["pos_x"] || 0.0)
+                                            onMoved: {
+                                                root.updateShapeParam("pos_x", Number(value.toFixed(2)))
+                                                modalGimbalCanvas.requestPaint()
+                                            }
+                                        }
+                                        Text { text: Number(root.currentParamValues["pos_x"] || 0.0).toFixed(1) + "m"; font.pixelSize: 9; font.bold: true; color: "#EF4444"; width: 36; horizontalAlignment: Text.AlignRight }
+                                    }
+
+                                    // Position Y Slider
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+                                        Text { text: "Y Offset:"; font.pixelSize: 9; color: "#10B981"; width: 44 }
+                                        Slider {
+                                            Layout.fillWidth: true
+                                            from: -25.0; to: 25.0; stepSize: 0.25
+                                            value: Number(root.currentParamValues["pos_y"] || 0.0)
+                                            onMoved: {
+                                                root.updateShapeParam("pos_y", Number(value.toFixed(2)))
+                                                modalGimbalCanvas.requestPaint()
+                                            }
+                                        }
+                                        Text { text: Number(root.currentParamValues["pos_y"] || 0.0).toFixed(1) + "m"; font.pixelSize: 9; font.bold: true; color: "#10B981"; width: 36; horizontalAlignment: Text.AlignRight }
+                                    }
+
+                                    // Elevation Z Slider
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+                                        Text { text: "Elev. Z:"; font.pixelSize: 9; color: "#00F5FF"; width: 44 }
+                                        Slider {
+                                            Layout.fillWidth: true
+                                            from: 0.0; to: 25.0; stepSize: 0.10
+                                            value: Number(root.currentParamValues["pos_z"] || 0.0)
+                                            onMoved: {
+                                                root.updateShapeParam("pos_z", Number(value.toFixed(2)))
+                                                modalGimbalCanvas.requestPaint()
+                                            }
+                                        }
+                                        Text { text: Number(root.currentParamValues["pos_z"] || 0.0).toFixed(1) + "m"; font.pixelSize: 9; font.bold: true; color: "#00F5FF"; width: 36; horizontalAlignment: Text.AlignRight }
+                                    }
+                                }
+                            }
+
+                            // 4. Instance Name & Tag Card
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 110
+                                radius: 10
+                                color: Qt.rgba(1, 1, 1, 0.04)
+                                border.width: 1
+                                border.color: colBorderSubtle
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 6
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: "Instance Name in SketchUp"; font.pixelSize: 10; font.bold: true; color: colTextPrimary }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: "Outliner Identifier"; font.pixelSize: 8; color: colTextMuted }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        height: 28
+                                        radius: 6
+                                        color: Qt.rgba(0, 0, 0, 0.4)
+                                        border.width: 1; border.color: colBorderSubtle
+
+                                        TextInput {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 8; anchors.rightMargin: 8
+                                            verticalAlignment: TextInput.AlignVCenter
+                                            color: "#FFFFFF"; font.pixelSize: 10
+                                            text: root.selectedAsset ? (root.currentParamValues["name"] !== undefined ? root.currentParamValues["name"] : root.selectedAsset.name) : ""
+                                            onTextEdited: root.updateShapeParam("name", text)
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: "SketchUp Layer / Tag:"; font.pixelSize: 9; color: colTextSecondary }
+                                        Item { Layout.fillWidth: true }
+                                        Repeater {
+                                            model: ["Untagged", "Architecture", "Furniture", "Landscape", "Structure"]
+                                            Rectangle {
+                                                property bool isCurTag: (root.currentParamValues["layer"] || "Untagged") === modelData
+                                                height: 18
+                                                implicitWidth: tagTxt.implicitWidth + 10
+                                                radius: 4
+                                                color: isCurTag ? Qt.rgba(0, 0.95, 1, 0.20) : Qt.rgba(1, 1, 1, 0.05)
+                                                border.width: isCurTag ? 1 : 0; border.color: colCyan
+                                                Text {
+                                                    id: tagTxt
+                                                    anchors.centerIn: parent
+                                                    text: modelData
+                                                    font.pixelSize: 8; font.bold: isCurTag
+                                                    color: isCurTag ? colCyan : colTextMuted
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.updateShapeParam("layer", modelData)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Reset Defaults Button
+                            Rectangle {
+                                Layout.alignment: Qt.AlignRight
+                                height: 22
+                                implicitWidth: mrstTxt.implicitWidth + 14
+                                radius: 11
+                                color: mrstM.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                                border.width: 1; border.color: colBorderSubtle
+
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 5
+                                    FAIcon { text: fa.sync; font.pixelSize: 8; color: colTextSecondary }
+                                    Text {
+                                        id: mrstTxt
+                                        text: "Reset All Transforms"
+                                        font.pixelSize: 9
+                                        color: colTextSecondary
+                                    }
+                                }
+                                MouseArea {
+                                    id: mrstM; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (root.selectedAsset) {
+                                            root.selectAsset(root.selectedAsset)
+                                            modalGimbalCanvas.requestPaint()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: colBorderSubtle }
+
+                // -------------------------------------------------------------
+                // 3. MODAL FOOTER ACTION BAR
+                // -------------------------------------------------------------
+                RowLayout {
+                    Layout.fillWidth: true
+                    height: 44
+                    spacing: 12
+
+                    RowLayout {
+                        spacing: 6
+                        FAIcon { text: fa.check; font.pixelSize: 10; color: colEmerald }
+                        Text {
+                            text: "Ready to insert into active SketchUp session with matrix transform"
+                            font.pixelSize: 10
+                            color: colTextSecondary
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    // Cancel / Close Button
+                    Rectangle {
+                        height: 38
+                        implicitWidth: mCancelTxt.implicitWidth + 24
+                        radius: 10
+                        color: mCancelM.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.05)
+                        border.width: 1; border.color: colBorderSubtle
+                        Text {
+                            id: mCancelTxt
+                            anchors.centerIn: parent
+                            text: "Cancel"
+                            font.pixelSize: 11
+                            color: colTextPrimary
+                        }
+                        MouseArea {
+                            id: mCancelM; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: root.closeModelModal()
+                        }
+                    }
+
+                    // Primary Action Button: ADD TO SKETCHUP 2026
+                    Rectangle {
+                        height: 38
+                        implicitWidth: mAddTxtRow.implicitWidth + 28
+                        radius: 10
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: mAddBtnM.containsMouse ? "#2DFEFF" : colCyan }
+                            GradientStop { position: 1.0; color: "#5E17EB" }
+                        }
+
+                        RowLayout {
+                            id: mAddTxtRow
+                            anchors.centerIn: parent
+                            spacing: 8
+                            FAIcon { text: fa.bolt; font.pixelSize: 12; color: "#FFFFFF" }
+                            Text {
+                                text: "ADD TO SKETCHUP 2026"
+                                font.pixelSize: 11
+                                font.bold: true
+                                font.letterSpacing: 0.8
+                                color: "#FFFFFF"
+                            }
+                        }
+
+                        MouseArea {
+                            id: mAddBtnM
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.insertSelectedModel()
+                        }
+                    }
+                }
             }
         }
     }

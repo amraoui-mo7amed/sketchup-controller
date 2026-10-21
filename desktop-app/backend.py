@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import threading
 import httpx
@@ -10,6 +11,8 @@ class Backend(QObject):
     connectionChanged = Signal(bool)
     statusUpdated = Signal()
     actionFinished = Signal(str, bool)
+    assetImported = Signal(str)
+    libraryReloaded = Signal()
 
     def __init__(self):
         super().__init__()
@@ -191,6 +194,289 @@ class Backend(QObject):
             {"shape_id": shape_id, "params": params},
             f"Created {friendly_name}"
         )
+
+    @Slot(str, str)
+    def insertModel(self, file_path, params_json):
+        try:
+            params = json.loads(params_json) if isinstance(params_json, str) else params_json
+        except Exception:
+            params = {}
+        payload = {"file_path": file_path}
+        payload.update(params)
+        name = payload.get("name") or os.path.basename(file_path)
+        self._send_action(
+            "/api/import",
+            payload,
+            f"Inserted {name}"
+        )
+
+    @Slot(result=str)
+    def browse3DFile(self):
+        from PySide6.QtWidgets import QFileDialog
+        filters = (
+            "All Supported 3D Formats (*.skp *.obj *.dae *.stl *.3ds *.dwg *.dxf *.ifc);;"
+            "SketchUp Component (*.skp);;"
+            "Wavefront OBJ (*.obj);;"
+            "COLLADA Asset (*.dae);;"
+            "Stereolithography (*.stl);;"
+            "3D Studio (*.3ds);;"
+            "AutoCAD (*.dwg *.dxf);;"
+            "IFC BIM (*.ifc);;"
+            "All Files (*.*)"
+        )
+        file_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "Select 3D Model / Component",
+            os.path.expanduser("~/Downloads"),
+            filters
+        )
+        if not file_path:
+            return ""
+
+        asset_info = self._process_3d_file(file_path, cat="imported")
+        json_str = json.dumps(asset_info)
+        self.assetImported.emit(json_str)
+        return json_str
+
+    @Slot(str, result=str)
+    def importFileFromPath(self, file_path):
+        if not file_path or not os.path.exists(file_path):
+            return ""
+        asset_info = self._process_3d_file(file_path, cat="imported")
+        json_str = json.dumps(asset_info)
+        self.assetImported.emit(json_str)
+        return json_str
+
+    def get_models_dir(self):
+        candidates = [
+            os.path.join(os.getcwd(), "models"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models"),
+            "/models",
+        ]
+        for c in candidates:
+            if os.path.exists(c) and os.path.isdir(c):
+                return os.path.abspath(c)
+        fallback = os.path.join(os.getcwd(), "models")
+        os.makedirs(fallback, exist_ok=True)
+        return os.path.abspath(fallback)
+
+    def _get_category_icon_key(self, cat_name):
+        name_l = cat_name.lower()
+        if any(k in name_l for k in ["arch", "build", "house", "villa", "home", "facade", "wall"]):
+            return "house"
+        elif any(k in name_l for k in ["furn", "interior", "decor", "chair", "table", "desk", "room", "sofa", "bed"]):
+            return "boxes"
+        elif any(k in name_l for k in ["land", "urban", "park", "garden", "bench", "tree", "plant", "outdoor", "street"]):
+            return "building"
+        elif any(k in name_l for k in ["struct", "column", "beam", "molding", "profile", "steel", "concrete", "pedestal", "truss"]):
+            return "rulerVertical"
+        elif any(k in name_l for k in ["vehic", "car", "truck", "bike", "transport"]):
+            return "truck"
+        elif any(k in name_l for k in ["light", "lamp", "lum"]):
+            return "sun"
+        elif any(k in name_l for k in ["door", "window", "aperture"]):
+            return "doorOpen"
+        elif any(k in name_l for k in ["import"]):
+            return "folder"
+        return "cube"
+
+    @Slot()
+    def refreshLibrary(self):
+        self.libraryReloaded.emit()
+
+    @Slot()
+    def openModelsFolder(self):
+        models_dir = self.get_models_dir()
+        os.makedirs(models_dir, exist_ok=True)
+        try:
+            if sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", models_dir])
+            elif sys.platform == "win32":
+                os.startfile(models_dir)
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", models_dir])
+        except Exception as e:
+            print("Error opening models folder:", e)
+
+    @Slot(result=str)
+    def getLibraryCategories(self):
+        """
+        Dynamically scans /models/ directory and discovers category folders.
+        Returns a JSON list of categories with counts and icon keys.
+        """
+        models_dir = self.get_models_dir()
+        exts_3d = (".skp", ".obj", ".dae", ".stl", ".3ds", ".dwg", ".dxf", ".ifc")
+
+        # Discover top-level directories under models/
+        subdirs = []
+        if os.path.exists(models_dir):
+            for entry in sorted(os.listdir(models_dir)):
+                full_sub = os.path.join(models_dir, entry)
+                if os.path.isdir(full_sub) and not entry.startswith("."):
+                    subdirs.append(entry)
+
+        # Count models per category
+        cat_counts = {d.lower().replace(" ", "_"): 0 for d in subdirs}
+        cat_names_map = {d.lower().replace(" ", "_"): d.replace("_", " ").title() for d in subdirs}
+        total_models = 0
+
+        if os.path.exists(models_dir):
+            for root_dir, _, files in os.walk(models_dir):
+                for f in files:
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in exts_3d:
+                        total_models += 1
+                        rel = os.path.relpath(os.path.join(root_dir, f), models_dir)
+                        parts = rel.split(os.sep)
+                        if len(parts) > 1:
+                            cid = parts[0].lower().replace(" ", "_")
+                            cat_counts[cid] = cat_counts.get(cid, 0) + 1
+                            if cid not in cat_names_map:
+                                cat_names_map[cid] = parts[0].replace("_", " ").title()
+                        else:
+                            cat_counts["general"] = cat_counts.get("general", 0) + 1
+                            cat_names_map["general"] = "General"
+
+        categories = [
+            {
+                "id": "all",
+                "name": "All 3D Models",
+                "count": total_models,
+                "iconKey": "cubes"
+            }
+        ]
+
+        for cid, display_name in sorted(cat_names_map.items(), key=lambda x: x[1]):
+            categories.append({
+                "id": cid,
+                "name": display_name,
+                "count": cat_counts.get(cid, 0),
+                "iconKey": self._get_category_icon_key(display_name)
+            })
+
+        return json.dumps(categories)
+
+    @Slot(result=str)
+    def getLibraryAssets(self):
+        """
+        Recursively scans /models/<category>/** for 3D files and matching preview images.
+        """
+        assets = []
+        seen_paths = set()
+        seen_names = set()
+
+        models_dir = self.get_models_dir()
+        if not os.path.exists(models_dir):
+            return json.dumps([])
+
+        exts_3d = (".skp", ".obj", ".dae", ".stl", ".3ds", ".dwg", ".dxf", ".ifc")
+        img_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+
+        for root_dir, _, files in os.walk(models_dir):
+            for f in sorted(files):
+                ext = os.path.splitext(f)[1].lower()
+                if ext in exts_3d:
+                    full_path = os.path.abspath(os.path.join(root_dir, f))
+                    real_p = os.path.realpath(full_path)
+                    if real_p in seen_paths or f in seen_names:
+                        continue
+                    seen_paths.add(real_p)
+                    seen_names.add(f)
+
+                    # Dynamic category from top-level folder inside models/
+                    rel = os.path.relpath(full_path, models_dir)
+                    parts = rel.split(os.sep)
+                    if len(parts) > 1:
+                        cat_folder = parts[0]
+                    else:
+                        cat_folder = "General"
+
+                    cat_id = cat_folder.lower().replace(" ", "_")
+                    cat_name = cat_folder.replace("_", " ").title()
+
+                    # Dynamic search for matching companion image in the same directory
+                    base_name = os.path.splitext(f)[0]
+                    matched_img = None
+                    for iext in img_exts:
+                        cand = os.path.join(root_dir, base_name + iext)
+                        if os.path.exists(cand) and os.path.getsize(cand) > 0:
+                            matched_img = os.path.abspath(cand)
+                            break
+                        cand_upper = os.path.join(root_dir, base_name + iext.upper())
+                        if os.path.exists(cand_upper) and os.path.getsize(cand_upper) > 0:
+                            matched_img = os.path.abspath(cand_upper)
+                            break
+                        cand_preview = os.path.join(root_dir, f"{base_name}_preview{iext}")
+                        if os.path.exists(cand_preview) and os.path.getsize(cand_preview) > 0:
+                            matched_img = os.path.abspath(cand_preview)
+                            break
+                        cand_skp = os.path.join(root_dir, f"{f}{iext}")
+                        if os.path.exists(cand_skp) and os.path.getsize(cand_skp) > 0:
+                            matched_img = os.path.abspath(cand_skp)
+                            break
+
+                    assets.append(self._process_3d_file(
+                        full_path,
+                        cat=cat_id,
+                        cat_name=cat_name,
+                        override_thumb=matched_img
+                    ))
+
+        return json.dumps(assets)
+
+    def _process_3d_file(self, file_path, cat=None, cat_name=None, override_thumb=None):
+        import zipfile
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        ext = os.path.splitext(file_path)[1].lower()
+        size_bytes = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        if size_bytes > 1024 * 1024:
+            size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            size_str = f"{size_bytes / 1024:.0f} KB"
+
+        thumb_path = override_thumb
+        if not thumb_path or not os.path.exists(thumb_path):
+            thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "thumbnails")
+            os.makedirs(thumb_dir, exist_ok=True)
+            cached_thumb = os.path.join(thumb_dir, f"{base_name}.png")
+            if ext == ".skp" and not (os.path.exists(cached_thumb) and os.path.getsize(cached_thumb) > 0):
+                try:
+                    with zipfile.ZipFile(file_path, "r") as z:
+                        for n in z.namelist():
+                            if "thumbnail" in n.lower() and n.endswith(".png"):
+                                with open(cached_thumb, "wb") as f_out:
+                                    f_out.write(z.read(n))
+                                break
+                except Exception:
+                    pass
+            if os.path.exists(cached_thumb) and os.path.getsize(cached_thumb) > 0:
+                thumb_path = cached_thumb
+
+        has_thumb = thumb_path and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0
+        friendly_title = base_name.replace("_", " ").replace("-", " ").title()
+
+        return {
+            "id": f"comp_{base_name}",
+            "name": friendly_title,
+            "filename": os.path.basename(file_path),
+            "path": os.path.abspath(file_path),
+            "ext": ext.replace(".", "").upper(),
+            "size": size_str,
+            "category": cat or "imported",
+            "category_name": cat_name or (cat.title() if cat else "Imported"),
+            "desc": f"Native {ext.upper()} model in /models/{cat_name or ''} ready to inspect and insert.",
+            "thumbnail": os.path.abspath(thumb_path) if has_thumb else "",
+            "params": [
+                {"key": "scale", "name": "Uniform Scale", "val": 1.0, "min": 0.1, "max": 5.0, "step": 0.05, "unit": "x"},
+                {"key": "rot_z", "name": "Rotation (Yaw)", "val": 0, "min": 0, "max": 360, "step": 15, "unit": "deg"},
+                {"key": "pos_x", "name": "Position X", "val": 0.0, "min": -25.0, "max": 25.0, "step": 0.25, "unit": "m"},
+                {"key": "pos_y", "name": "Position Y", "val": 0.0, "min": -25.0, "max": 25.0, "step": 0.25, "unit": "m"},
+                {"key": "pos_z", "name": "Elevation Z", "val": 0.0, "min": 0.0, "max": 25.0, "step": 0.10, "unit": "m"},
+            ]
+        }
 
     @Slot()
     def clearModel(self):

@@ -1,7 +1,8 @@
 import os
 import sys
 import traceback
-from PySide6.QtGui import QGuiApplication, QIcon, QFontDatabase
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon, QFontDatabase
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtCore import QUrl
 from backend import Backend
@@ -47,7 +48,7 @@ def main():
     try:
         os.environ["QT_QUICK_CONTROLS_STYLE"] = "Basic"
 
-        app = QGuiApplication(sys.argv)
+        app = QApplication(sys.argv)
         app.setApplicationName("Liquid CAD Studio")
         app.setOrganizationName("Antigravity")
 

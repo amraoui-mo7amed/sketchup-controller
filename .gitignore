@@ -11,4 +11,9 @@ dist/
 *.zip
 *.dmg
 dmg_staging/
+.library_backup/
+desktop-app/models
+desktop-app/assets/thumbnails/
 desktop-app/*clean_ui*.py
+desktop-app/*capture*.py
+desktop-app/*refactor*.py
