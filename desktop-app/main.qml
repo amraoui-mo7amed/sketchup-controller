@@ -552,6 +552,7 @@ ApplicationWindow {
 
                 // Bridge Status Pill
                 Rectangle {
+                    id: statusPill
                     property bool isConn: backend ? backend.connected : false
                     height: 32
                     implicitWidth: statusPillRow.implicitWidth + 22
@@ -582,6 +583,42 @@ ApplicationWindow {
                             color: parent.parent.isConn ? colEmerald : colAmber
                         }
                     }
+                }
+
+                // Retry / Reconnect Bridge Button (icon-only, shown when offline)
+                Rectangle {
+                    id: retryBridgeBtn
+                    width: 32; height: 32; radius: 16
+                    visible: !(backend ? backend.connected : true)
+                    color: retryBridgeM.containsMouse ? Qt.rgba(0.96, 0.62, 0.04, 0.20) : Qt.rgba(1, 1, 1, 0.05)
+                    border.width: 1
+                    border.color: retryBridgeM.containsMouse ? colAmber : colBorderSubtle
+
+                    FAIcon {
+                        anchors.centerIn: parent
+                        text: fa.sync
+                        font.pixelSize: 12
+                        color: retryBridgeM.containsMouse ? colAmber : colTextSecondary
+                        RotationAnimation on rotation {
+                            running: retryBridgeM.pressed
+                            loops: Animation.Infinite
+                            from: 0; to: 360; duration: 600
+                        }
+                    }
+
+                    MouseArea {
+                        id: retryBridgeM
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (backend) backend.poll_status_async()
+                        }
+                    }
+
+                    ToolTip.visible: retryBridgeM.containsMouse
+                    ToolTip.text: "Retry connecting to SketchUp Bridge"
+                    ToolTip.delay: 500
                 }
 
                 // Info / Credits Drawer Toggle Button
@@ -714,60 +751,7 @@ ApplicationWindow {
                     }
                 }
 
-                // Open /models/ folder in system file manager
-                Rectangle {
-                    height: 26
-                    implicitWidth: ribOpenRow.implicitWidth + 16
-                    radius: 13
-                    color: ribOpenM.containsMouse ? Qt.rgba(255, 255, 255, 0.12) : Qt.rgba(255, 255, 255, 0.05)
-                    border.width: 1
-                    border.color: colBorderSubtle
 
-                    RowLayout {
-                        id: ribOpenRow
-                        anchors.centerIn: parent
-                        spacing: 5
-                        FAIcon { text: fa.folder; font.pixelSize: 9; color: colCyan }
-                        Text { text: "Open /models/"; font.pixelSize: 10; font.bold: true; color: colTextSecondary }
-                    }
-
-                    MouseArea {
-                        id: ribOpenM
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: backend.openModelsFolder()
-                    }
-                }
-
-                // Refresh / Scan models directory button
-                Rectangle {
-                    height: 26
-                    implicitWidth: ribScanRow.implicitWidth + 16
-                    radius: 13
-                    color: ribScanM.containsMouse ? Qt.rgba(0, 0.95, 1, 0.20) : Qt.rgba(1, 1, 1, 0.05)
-                    border.width: 1
-                    border.color: colBorderSubtle
-
-                    RowLayout {
-                        id: ribScanRow
-                        anchors.centerIn: parent
-                        spacing: 5
-                        FAIcon { text: fa.sync; font.pixelSize: 8; color: colCyan }
-                        Text { text: "Scan /models/"; font.pixelSize: 10; font.bold: true; color: colTextSecondary }
-                    }
-
-                    MouseArea {
-                        id: ribScanM
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            backend.refreshLibrary()
-                            root.loadAssets()
-                        }
-                    }
-                }
             }
         }
 
@@ -858,7 +842,7 @@ ApplicationWindow {
                                     Rectangle {
                                         property bool isAct: root.selectedAsset && root.selectedAsset.id === modelData.id
                                         width: Math.max(220, Math.floor((shapesFlow.width - (3 * 14)) / 4))
-                                        height: 145
+                                        height: 210
                                         radius: 14
                                         color: isAct ? Qt.rgba(0, 0.95, 1, 0.12) : (cardMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : colGlassCard)
                                         border.width: isAct ? 1.5 : 1
@@ -870,40 +854,41 @@ ApplicationWindow {
 
                                         ColumnLayout {
                                             anchors.fill: parent
-                                            anchors.margins: 12
-                                            spacing: 6
+                                            spacing: 0
 
-                                            // Card Top Row: Thumbnail Image / Icon + Extension Pill
-                                            RowLayout {
+                                            // Full-width thumbnail banner
+                                            Item {
                                                 Layout.fillWidth: true
+                                                Layout.preferredHeight: 120
+                                                clip: true
 
                                                 Rectangle {
-                                                    width: 44; height: 44; radius: 10
-                                                    color: Qt.rgba(0, 0, 0, 0.40)
-                                                    border.width: 1
-                                                    border.color: isAct ? colCyan : Qt.rgba(1, 1, 1, 0.10)
-                                                    clip: true
-
-                                                    Image {
-                                                        id: cardThumbImg
-                                                        anchors.fill: parent
-                                                        source: modelData.thumbnail ? ("file://" + modelData.thumbnail) : ""
-                                                        fillMode: Image.PreserveAspectFit
-                                                        visible: modelData.thumbnail !== "" && status === Image.Ready
-                                                    }
-
-                                                    FAIcon {
-                                                        anchors.centerIn: parent
-                                                        visible: !modelData.thumbnail || cardThumbImg.status !== Image.Ready
-                                                        text: modelData.ext === "SKP" ? fa.cube : fa.folder
-                                                        font.pixelSize: 18
-                                                        color: isAct ? colCyan : colTextSecondary
-                                                    }
+                                                    anchors.fill: parent
+                                                    color: Qt.rgba(0.04, 0.06, 0.12, 1)
                                                 }
 
-                                                Item { Layout.fillWidth: true }
+                                                Image {
+                                                    id: cardThumbImg
+                                                    anchors.fill: parent
+                                                    source: modelData.thumbnail ? ("file://" + modelData.thumbnail) : ""
+                                                    fillMode: Image.PreserveAspectCrop
+                                                    smooth: true
+                                                    visible: modelData.thumbnail !== "" && status === Image.Ready
+                                                }
 
+                                                FAIcon {
+                                                    anchors.centerIn: parent
+                                                    visible: !modelData.thumbnail || cardThumbImg.status !== Image.Ready
+                                                    text: modelData.ext === "SKP" ? fa.cube : fa.folder
+                                                    font.pixelSize: 32
+                                                    color: isAct ? colCyan : Qt.rgba(1, 1, 1, 0.18)
+                                                }
+
+                                                // Extension pill overlay top-right
                                                 Rectangle {
+                                                    anchors.top: parent.top
+                                                    anchors.right: parent.right
+                                                    anchors.margins: 8
                                                     height: 18
                                                     implicitWidth: extTag.implicitWidth + 12
                                                     radius: 9
@@ -919,43 +904,64 @@ ApplicationWindow {
                                                         color: modelData.ext === "SKP" ? colCyan : colViolet
                                                     }
                                                 }
-                                            }
 
-                                            // Model Name
-                                            Text {
-                                                text: modelData.name
-                                                font.pixelSize: 12
-                                                font.bold: true
-                                                color: isAct ? colCyan : "#FFFFFF"
-                                                elide: Text.ElideRight
-                                                Layout.fillWidth: true
-                                            }
-
-                                            // Category & File Size
-                                            Text {
-                                                text: (modelData.category_name ? modelData.category_name.toUpperCase() : (modelData.category ? modelData.category.toUpperCase() : "3D")) + " • " + (modelData.size || "")
-                                                font.pixelSize: 9
-                                                color: colTextSecondary
-                                                elide: Text.ElideRight
-                                                Layout.fillWidth: true
-                                            }
-
-                                            Item { Layout.fillHeight: true }
-
-                                            // Bottom Micro-Bar: Configure cue
-                                            RowLayout {
-                                                Layout.fillWidth: true
-                                                Text {
-                                                    text: "Customizable"
-                                                    font.pixelSize: 8
-                                                    color: colTextMuted
+                                                // Bottom gradient fade into card body
+                                                Rectangle {
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.left: parent.left
+                                                    anchors.right: parent.right
+                                                    height: 28
+                                                    gradient: Gradient {
+                                                        orientation: Gradient.Vertical
+                                                        GradientStop { position: 0.0; color: "transparent" }
+                                                        GradientStop { position: 1.0; color: isAct ? Qt.rgba(0, 0.05, 0.10, 0.90) : Qt.rgba(0.07, 0.11, 0.19, 0.90) }
+                                                    }
                                                 }
-                                                Item { Layout.fillWidth: true }
+                                            }
+
+                                            // Card info body
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                Layout.fillHeight: true
+                                                Layout.leftMargin: 12
+                                                Layout.rightMargin: 12
+                                                Layout.topMargin: 8
+                                                Layout.bottomMargin: 10
+                                                spacing: 3
+
                                                 Text {
-                                                    text: isAct ? "Tuning in Studio →" : "Tune & Insert →"
-                                                    font.pixelSize: 9
+                                                    text: modelData.name
+                                                    font.pixelSize: 12
                                                     font.bold: true
-                                                    color: isAct ? colCyan : (cardMouse.containsMouse ? colTextPrimary : colViolet)
+                                                    color: isAct ? colCyan : "#FFFFFF"
+                                                    elide: Text.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+
+                                                Text {
+                                                    text: (modelData.category_name ? modelData.category_name.toUpperCase() : (modelData.category ? modelData.category.toUpperCase() : "3D")) + " \u2022 " + (modelData.size || "")
+                                                    font.pixelSize: 9
+                                                    color: colTextSecondary
+                                                    elide: Text.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+
+                                                Item { Layout.fillHeight: true }
+
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    Text {
+                                                        text: "Customizable"
+                                                        font.pixelSize: 8
+                                                        color: colTextMuted
+                                                    }
+                                                    Item { Layout.fillWidth: true }
+                                                    Text {
+                                                        text: isAct ? "Tuning in Studio \u2192" : "Tune & Insert \u2192"
+                                                        font.pixelSize: 9
+                                                        font.bold: true
+                                                        color: isAct ? colCyan : (cardMouse.containsMouse ? colTextPrimary : colViolet)
+                                                    }
                                                 }
                                             }
                                         }
