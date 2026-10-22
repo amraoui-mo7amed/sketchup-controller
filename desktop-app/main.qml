@@ -78,6 +78,19 @@ ApplicationWindow {
         }
     }
 
+    // Build a valid, platform-independent file:// URL for QML Image sources.
+    // On Windows a raw path ("D:\\models\\x.png") must become "file:///D:/models/x.png".
+    function assetThumbUrl(asset) {
+        if (!asset) return ""
+        if (asset.thumbnail_url) return asset.thumbnail_url
+        var p = asset.thumbnail || ""
+        if (!p) return ""
+        p = String(p).replace(/\\/g, "/")
+        if (/^[A-Za-z]:\//.test(p)) return "file:///" + p
+        if (p.charAt(0) === "/") return "file://" + p
+        return "file:///" + p
+    }
+
     function getFilteredAssets(cat, query) {
         var res = []
         var q = (query || "").toLowerCase().trim()
@@ -143,6 +156,13 @@ ApplicationWindow {
 
     function insertSelectedModel() {
         if (!selectedAsset) return
+        if (selectedAsset.has_model === false || !selectedAsset.path) {
+            toastText = "Preview only — no 3D model file found in this folder"
+            toastSuccess = false
+            toastVisible = true
+            toastTimer.restart()
+            return
+        }
         backend.insertModel(selectedAsset.path, JSON.stringify(currentParamValues))
         modelModalOpen = false
     }
@@ -870,15 +890,15 @@ ApplicationWindow {
                                                 Image {
                                                     id: cardThumbImg
                                                     anchors.fill: parent
-                                                    source: modelData.thumbnail ? ("file://" + modelData.thumbnail) : ""
+                                                    source: root.assetThumbUrl(modelData)
                                                     fillMode: Image.PreserveAspectCrop
                                                     smooth: true
-                                                    visible: modelData.thumbnail !== "" && status === Image.Ready
+                                                    visible: root.assetThumbUrl(modelData) !== "" && status === Image.Ready
                                                 }
 
                                                 FAIcon {
                                                     anchors.centerIn: parent
-                                                    visible: !modelData.thumbnail || cardThumbImg.status !== Image.Ready
+                                                    visible: root.assetThumbUrl(modelData) === "" || cardThumbImg.status !== Image.Ready
                                                     text: modelData.ext === "SKP" ? fa.cube : fa.folder
                                                     font.pixelSize: 32
                                                     color: isAct ? colCyan : Qt.rgba(1, 1, 1, 0.18)
@@ -939,9 +959,9 @@ ApplicationWindow {
                                                 }
 
                                                 Text {
-                                                    text: (modelData.category_name ? modelData.category_name.toUpperCase() : (modelData.category ? modelData.category.toUpperCase() : "3D")) + " \u2022 " + (modelData.size || "")
+                                                    text: (modelData.category_name ? modelData.category_name.toUpperCase() : (modelData.category ? modelData.category.toUpperCase() : "3D")) + " \u2022 " + (modelData.has_model === false ? "NO 3D FILE" : (modelData.size || ""))
                                                     font.pixelSize: 9
-                                                    color: colTextSecondary
+                                                    color: modelData.has_model === false ? colAmber : colTextSecondary
                                                     elide: Text.ElideRight
                                                     Layout.fillWidth: true
                                                 }
@@ -951,16 +971,16 @@ ApplicationWindow {
                                                 RowLayout {
                                                     Layout.fillWidth: true
                                                     Text {
-                                                        text: "Customizable"
+                                                        text: modelData.has_model === false ? "Preview only" : "Customizable"
                                                         font.pixelSize: 8
                                                         color: colTextMuted
                                                     }
                                                     Item { Layout.fillWidth: true }
                                                     Text {
-                                                        text: isAct ? "Tuning in Studio \u2192" : "Tune & Insert \u2192"
+                                                        text: modelData.has_model === false ? "View preview \u2192" : (isAct ? "Tuning in Studio \u2192" : "Tune & Insert \u2192")
                                                         font.pixelSize: 9
                                                         font.bold: true
-                                                        color: isAct ? colCyan : (cardMouse.containsMouse ? colTextPrimary : colViolet)
+                                                        color: modelData.has_model === false ? colAmber : (isAct ? colCyan : (cardMouse.containsMouse ? colTextPrimary : colViolet))
                                                     }
                                                 }
                                             }
@@ -1007,7 +1027,7 @@ ApplicationWindow {
 
                                     Text {
                                         Layout.alignment: Qt.AlignHCenter
-                                        text: root.activeCategory === "all" ? "No 3D Models in /models/" : ("No models in category: " + root.activeCategory.toUpperCase())
+                                        text: root.activeCategory === "all" ? "No 3D model files in /models/" : ("No 3D files in category: " + root.activeCategory.toUpperCase())
                                         font.pixelSize: 15
                                         font.bold: true
                                         color: "#FFFFFF"
@@ -1015,7 +1035,7 @@ ApplicationWindow {
 
                                     Text {
                                         Layout.alignment: Qt.AlignHCenter
-                                        text: "Drop your .skp files into /models/" + (root.activeCategory === "all" ? "<category>/" : (root.activeCategory + "/")) + " and click Scan /models/"
+                                        text: "Add .skp files anywhere under /models/ — e.g. /models/<category>/<model>/model/file.skp. The library refreshes automatically."
                                         font.pixelSize: 11
                                         color: colTextSecondary
                                     }
@@ -1503,13 +1523,13 @@ ApplicationWindow {
                         Image {
                             anchors.fill: parent
                             anchors.margins: 2
-                            source: (root.selectedAsset && root.selectedAsset.thumbnail) ? ("file://" + root.selectedAsset.thumbnail) : ""
+                            source: root.assetThumbUrl(root.selectedAsset)
                             fillMode: Image.PreserveAspectFit
-                            visible: root.selectedAsset && root.selectedAsset.thumbnail !== "" && status === Image.Ready
+                            visible: root.assetThumbUrl(root.selectedAsset) !== "" && status === Image.Ready
                         }
                         FAIcon {
                             anchors.centerIn: parent
-                            visible: !(root.selectedAsset && root.selectedAsset.thumbnail !== "")
+                            visible: root.assetThumbUrl(root.selectedAsset) === ""
                             text: (root.selectedAsset && root.selectedAsset.ext === "SKP") ? fa.cube : fa.folder
                             font.pixelSize: 18
                             color: colCyan
@@ -1558,9 +1578,13 @@ ApplicationWindow {
                         }
 
                         Text {
-                            text: root.selectedAsset ? (root.selectedAsset.filename + " • " + root.selectedAsset.size + " • " + (root.selectedAsset.path || "")) : ""
+                            text: root.selectedAsset
+                                  ? (root.selectedAsset.has_model === false
+                                     ? ("Preview only \u2022 " + (root.selectedAsset.folder || "") )
+                                     : (root.selectedAsset.filename + " \u2022 " + root.selectedAsset.size + " \u2022 " + (root.selectedAsset.path || "")))
+                                  : ""
                             font.pixelSize: 9
-                            color: colTextSecondary
+                            color: root.selectedAsset && root.selectedAsset.has_model === false ? colAmber : colTextSecondary
                             elide: Text.ElideMiddle
                             Layout.fillWidth: true
                         }
@@ -1618,7 +1642,7 @@ ApplicationWindow {
                                     spacing: 6
                                     FAIcon { text: fa.camera; font.pixelSize: 10; color: modalContainer.modalPreviewTab === 0 ? colCyan : colTextSecondary }
                                     Text {
-                                        text: "RENDERED IMAGE PREVIEW"
+                                        text: (root.selectedAsset && root.selectedAsset.ext === "SKP") ? "SKP FILE PREVIEW" : "RENDERED IMAGE PREVIEW"
                                         font.pixelSize: 9
                                         font.bold: true
                                         color: modalContainer.modalPreviewTab === 0 ? colCyan : colTextSecondary
@@ -1692,8 +1716,8 @@ ApplicationWindow {
                                         Text {
                                             id: mImgPill
                                             anchors.centerIn: parent
-                                            text: "SKETCHUP NATIVE PREVIEW"
-                                            font.pixelSize: 8; font.bold: true; color: colCyan
+                                            text: (root.selectedAsset && root.selectedAsset.has_model === false) ? "PREVIEW IMAGE \u2022 NO 3D FILE" : ((root.selectedAsset && root.selectedAsset.ext === "SKP") ? "SKP MODEL PREVIEW" : "SKETCHUP NATIVE PREVIEW")
+                                            font.pixelSize: 8; font.bold: true; color: root.selectedAsset && root.selectedAsset.has_model === false ? colAmber : colCyan
                                         }
                                     }
                                     Item { Layout.fillWidth: true }
@@ -1708,10 +1732,10 @@ ApplicationWindow {
                                     anchors.fill: parent
                                     anchors.margins: 16
                                     anchors.topMargin: 30
-                                    source: (root.selectedAsset && root.selectedAsset.thumbnail) ? ("file://" + root.selectedAsset.thumbnail) : ""
+                                    source: root.assetThumbUrl(root.selectedAsset)
                                     fillMode: Image.PreserveAspectFit
                                     smooth: true
-                                    visible: root.selectedAsset && root.selectedAsset.thumbnail !== "" && status === Image.Ready
+                                    visible: root.assetThumbUrl(root.selectedAsset) !== "" && status === Image.Ready
                                 }
 
                                 ColumnLayout {
@@ -2375,11 +2399,13 @@ ApplicationWindow {
 
                     RowLayout {
                         spacing: 6
-                        FAIcon { text: fa.check; font.pixelSize: 10; color: colEmerald }
+                        FAIcon { text: root.selectedAsset && root.selectedAsset.has_model === false ? fa.warning : fa.check; font.pixelSize: 10; color: root.selectedAsset && root.selectedAsset.has_model === false ? colAmber : colEmerald }
                         Text {
-                            text: "Ready to insert into active SketchUp session with matrix transform"
+                            text: root.selectedAsset && root.selectedAsset.has_model === false
+                                  ? "Preview only — add a 3D file to this folder to enable insertion"
+                                  : "Ready to insert into active SketchUp session with matrix transform"
                             font.pixelSize: 10
-                            color: colTextSecondary
+                            color: root.selectedAsset && root.selectedAsset.has_model === false ? colAmber : colTextSecondary
                         }
                     }
 
@@ -2407,21 +2433,23 @@ ApplicationWindow {
 
                     // Primary Action Button: ADD TO SKETCHUP 2026
                     Rectangle {
+                        id: mAddBtn
+                        property bool noModel: root.selectedAsset && root.selectedAsset.has_model === false
                         height: 38
                         implicitWidth: mAddTxtRow.implicitWidth + 28
                         radius: 10
                         gradient: Gradient {
-                            GradientStop { position: 0.0; color: mAddBtnM.containsMouse ? "#2DFEFF" : colCyan }
-                            GradientStop { position: 1.0; color: "#5E17EB" }
+                            GradientStop { position: 0.0; color: mAddBtn.noModel ? (mAddBtnM.containsMouse ? "#D97706" : colAmber) : (mAddBtnM.containsMouse ? "#2DFEFF" : colCyan) }
+                            GradientStop { position: 1.0; color: mAddBtn.noModel ? "#92400E" : "#5E17EB" }
                         }
 
                         RowLayout {
                             id: mAddTxtRow
                             anchors.centerIn: parent
                             spacing: 8
-                            FAIcon { text: fa.bolt; font.pixelSize: 12; color: "#FFFFFF" }
+                            FAIcon { text: mAddBtn.noModel ? fa.warning : fa.bolt; font.pixelSize: 12; color: "#FFFFFF" }
                             Text {
-                                text: "ADD TO SKETCHUP 2026"
+                                text: mAddBtn.noModel ? "NO 3D FILE IN FOLDER" : "ADD TO SKETCHUP 2026"
                                 font.pixelSize: 11
                                 font.bold: true
                                 font.letterSpacing: 0.8

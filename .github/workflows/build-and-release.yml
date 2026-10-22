@@ -36,8 +36,6 @@ jobs:
             --paths "desktop-app" \
             --add-data "desktop-app/main.qml:." \
             --add-data "desktop-app/main.qml:desktop-app" \
-            --add-data "models:models" \
-            --add-data "models:desktop-app/models" \
             --add-data "desktop-app/assets:assets" \
             --add-data "desktop-app/assets:desktop-app/assets" \
             --hidden-import "httpx" \
@@ -83,8 +81,6 @@ jobs:
             --paths "desktop-app" `
             --add-data "desktop-app/main.qml;." `
             --add-data "desktop-app/main.qml;desktop-app" `
-            --add-data "models;models" `
-            --add-data "models;desktop-app/models" `
             --add-data "desktop-app/assets;assets" `
             --add-data "desktop-app/assets;desktop-app/assets" `
             --hidden-import "httpx" `
@@ -124,6 +120,16 @@ jobs:
           name: Liquid CAD Studio ${{ github.ref_name }}
           draft: false
           prerelease: false
+          body: |
+            ## Liquid CAD Studio ${{ github.ref_name }}
+
+            - Library cards and the model preview modal now show the actual `.skp` preview.
+            - Embedded `.skp` previews are preferred. If a file only contains the generic
+              SketchUp icon, the real geometry is rendered through the SketchUp bridge and
+              cached automatically.
+            - Article images such as `image_1.png` are never used as `.skp` previews.
+            - Add your own `.skp` files to a `models/` folder next to the executable (or in
+              the current working directory); the library scans it automatically.
           files: |
             LiquidCADStudio-macOS.dmg
             LiquidCADStudio-Windows.exe

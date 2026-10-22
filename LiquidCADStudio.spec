@@ -8,8 +8,6 @@ a = Analysis(
     datas=[
         ('desktop-app/main.qml', '.'),
         ('desktop-app/main.qml', 'desktop-app'),
-        ('models', 'models'),
-        ('models', 'desktop-app/models'),
         ('desktop-app/assets', 'assets'),
         ('desktop-app/assets', 'desktop-app/assets'),
     ],

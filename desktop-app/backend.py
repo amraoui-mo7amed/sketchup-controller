@@ -1,11 +1,32 @@
 import sys
 import os
 import json
+import hashlib
 import threading
 import httpx
+from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot, Property, QTimer
 
 BRIDGE_URL = "http://127.0.0.1:9876"
+
+EXTS_3D = (".skp", ".obj", ".dae", ".stl", ".3ds", ".dwg", ".dxf", ".ifc")
+IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+
+# Auto-rendering a very large .skp can exhaust SketchUp's memory because the
+# whole definition is loaded. Files above this size keep a placeholder until
+# the user explicitly asks for a preview.
+MAX_AUTO_PREVIEW_BYTES = 350 * 1024 * 1024
+
+
+def to_file_url(path):
+    """Return a platform-correct, percent-encoded file:// URL for QML Image sources."""
+    if not path:
+        return ""
+    try:
+        return Path(os.path.abspath(path)).as_uri()
+    except (ValueError, OSError):
+        return ""
+
 
 class Backend(QObject):
     connectionChanged = Signal(bool)
@@ -32,6 +53,21 @@ class Backend(QObject):
         self.poll_timer = QTimer(self)
         self.poll_timer.timeout.connect(self.poll_status_async)
         self.poll_timer.start(1500)
+
+        # Library cache is invalidated when /models/ changes on disk.
+        self._library_cache = None
+        self._library_signature = None
+        self.library_timer = QTimer(self)
+        self.library_timer.timeout.connect(self.check_library_changes)
+        self.library_timer.start(4000)
+
+        # Previews generated from real .skp geometry (only when the file has
+        # no embedded model thumbnail). These run in the background because
+        # opening a large .skp inside SketchUp can take a while.
+        self._preview_lock = threading.Lock()
+        self._preview_pending = set()
+        self._preview_failed = set()
+        self._preview_worker_running = False
 
         # Initial check
         self.poll_status_async()
@@ -102,6 +138,11 @@ class Backend(QObject):
     def _update_status(self, data, is_connected):
         state_changed = (self._connected != is_connected)
         self._connected = is_connected
+        if state_changed and is_connected:
+            # A new connection may be able to render previews that failed
+            # while the bridge was offline.
+            with self._preview_lock:
+                self._preview_failed.clear()
 
         if is_connected and data:
             self._model_name = data.get("model_name", "Active Model")
@@ -197,6 +238,9 @@ class Backend(QObject):
 
     @Slot(str, str)
     def insertModel(self, file_path, params_json):
+        if not file_path or not os.path.isfile(file_path):
+            self.actionFinished.emit("No 3D model file found in this folder", False)
+            return
         try:
             params = json.loads(params_json) if isinstance(params_json, str) else params_json
         except Exception:
@@ -254,6 +298,15 @@ class Backend(QObject):
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models"),
             "/models",
         ]
+        # One-file builds unpack to a temporary directory, so __file__ cannot
+        # find a models folder placed next to the executable. Check the real
+        # executable location too (and its parent, for a dist/ layout).
+        if getattr(sys, "frozen", False):
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            candidates.extend([
+                os.path.join(exe_dir, "models"),
+                os.path.join(exe_dir, "..", "models"),
+            ])
         for c in candidates:
             if os.path.exists(c) and os.path.isdir(c):
                 return os.path.abspath(c)
@@ -301,59 +354,493 @@ class Backend(QObject):
         except Exception as e:
             print("Error opening models folder:", e)
 
+    # --- Library scanning helpers ---
+
+    def _read_meta(self, folder):
+        try:
+            for name in os.listdir(folder):
+                if name.lower() != "meta.json":
+                    continue
+                with open(os.path.join(folder, name), "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            pass
+        return {}
+
+    @staticmethod
+    def _nonempty_file(path):
+        try:
+            return os.path.isfile(path) and os.path.getsize(path) > 0
+        except OSError:
+            return False
+
+    @staticmethod
+    def _friendly_name(value):
+        return value.replace("_", " ").replace("-", " ").strip().title()
+
+    def _list_images(self, folder):
+        images = []
+        try:
+            for name in os.listdir(folder):
+                if os.path.splitext(name)[1].lower() in IMG_EXTS:
+                    full = os.path.join(folder, name)
+                    if self._nonempty_file(full):
+                        images.append(full)
+        except OSError:
+            pass
+        return images
+
+    def _find_cover_image(self, unit_dir, model_path, models_dir):
+        unit_dir = os.path.abspath(unit_dir)
+        dirs = [unit_dir]
+        if model_path:
+            model_dir = os.path.abspath(os.path.dirname(model_path))
+            if model_dir != unit_dir:
+                dirs.insert(0, model_dir)
+
+        # 1) Prefer a sidecar image named after the 3D file (old flat layout).
+        if model_path:
+            base = os.path.splitext(os.path.basename(model_path))[0]
+            model_file = os.path.basename(model_path)
+            for folder in dirs:
+                for iext in IMG_EXTS:
+                    for candidate in (
+                        base + iext,
+                        base + iext.upper(),
+                        base + "_preview" + iext,
+                        base + "_preview" + iext.upper(),
+                        model_file + iext,
+                        model_file + iext.upper(),
+                    ):
+                        full = os.path.join(folder, candidate)
+                        if self._nonempty_file(full):
+                            return os.path.abspath(full)
+
+        # 2) Generic cover images (new nested layout: <model>/image_1.png).
+        rel = os.path.relpath(unit_dir, models_dir)
+        parts = [] if rel == "." else rel.split(os.sep)
+        # A top-level category folder can contain many sidecars; never pick one
+        # of those as the cover for an unrelated model without a sidecar.
+        if model_path and len(parts) <= 1:
+            return None
+
+        images = []
+        for folder in dirs:
+            images.extend(self._list_images(folder))
+
+        def rank(path):
+            name = os.path.basename(path).lower()
+            if name.startswith("image_1"):
+                return 0
+            if "cover" in name:
+                return 1
+            if "preview" in name:
+                return 2
+            if "thumb" in name:
+                return 3
+            if name.startswith("image_"):
+                return 4
+            return 5
+
+        images.sort(key=lambda p: (rank(p), p.lower()))
+        return os.path.abspath(images[0]) if images else None
+
+    def _resolve_unit_dir(self, file_dir, models_dir, filename):
+        """Find the folder representing one model (old flat + new nested layouts)."""
+        base = os.path.splitext(filename)[0]
+        models_abs = os.path.abspath(models_dir)
+        cur = os.path.abspath(file_dir)
+
+        while True:
+            for iext in IMG_EXTS:
+                for candidate in (
+                    base + iext,
+                    base + iext.upper(),
+                    base + "_preview" + iext,
+                    base + "_preview" + iext.upper(),
+                ):
+                    if self._nonempty_file(os.path.join(cur, candidate)):
+                        return cur, self._read_meta(cur)
+
+            meta = self._read_meta(cur)
+            if meta:
+                return cur, meta
+
+            # In the nested layout the .skp sits in "<unit>/model/" next to
+            # dozens of texture images. Those textures are not the article
+            # cover, so climb to the parent unit folder instead.
+            if os.path.basename(cur).lower() != "model" and self._list_images(cur):
+                return cur, {}
+
+            if cur == models_abs:
+                break
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
+
+        return os.path.abspath(file_dir), self._read_meta(file_dir)
+
+    def _extract_skp_thumbnail(self, file_path):
+        """Extract the real preview embedded in a .skp into the app cache.
+
+        Never writes inside /models/. The cache key includes the file's
+        mtime/size so an edited .skp cannot serve a stale preview.
+        """
+        import zipfile
+        if os.path.splitext(file_path)[1].lower() != ".skp":
+            return None
+        try:
+            st = os.stat(file_path)
+            key_src = f"{os.path.abspath(file_path)}|{st.st_mtime_ns}|{st.st_size}"
+            key = hashlib.md5(key_src.encode("utf-8")).hexdigest()[:16]
+        except OSError:
+            return None
+
+        thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "thumbnails")
+        os.makedirs(thumb_dir, exist_ok=True)
+        cached = os.path.join(thumb_dir, f"skp_v2_{key}.png")
+        if self._nonempty_file(cached):
+            return cached
+
+        preferred = ("meta/preview_thumbnail.png", "meta/model_thumbnail.png")
+        try:
+            with zipfile.ZipFile(file_path, "r") as z:
+                names = z.namelist()
+                normalised = {}
+                for name in names:
+                    normalised.setdefault(name.replace("\\", "/").lower(), name)
+
+                chosen = next(
+                    (normalised[p] for p in preferred if p in normalised),
+                    None
+                )
+                if chosen is None:
+                    candidates = [
+                        n for n in names
+                        if n.lower().endswith(".png")
+                        and "thumbnail" in n.lower()
+                        # Material swatches are tiny textures, not model previews.
+                        and not n.replace("\\", "/").lower().startswith("materials/")
+                        # "doc_thumbnail.png" is SketchUp's generic document
+                        # icon (usually just the SketchUp logo), not the model.
+                        and not n.replace("\\", "/").lower().rsplit("/", 1)[-1].startswith("doc_")
+                    ]
+                    if candidates:
+                        def _rank(n):
+                            ln = n.replace("\\", "/").lower()
+                            base = ln.rsplit("/", 1)[-1]
+                            if ln.startswith("meta/"):
+                                return (0, ln)
+                            if base.startswith("preview"):
+                                return (1, ln)
+                            if base.startswith("model"):
+                                return (2, ln)
+                            return (3, ln)
+                        chosen = sorted(candidates, key=_rank)[0]
+
+                if chosen:
+                    with open(cached, "wb") as out:
+                        out.write(z.read(chosen))
+        except Exception:
+            return None
+        return cached if self._nonempty_file(cached) else None
+
+    def _skp_cache_key(self, file_path):
+        """Content-based cache key so previews survive moving/renaming a model.
+
+        Reads the size plus the first and last megabyte, which is enough to
+        distinguish real model edits without hashing multi-gigabyte files.
+        """
+        try:
+            st = os.stat(file_path)
+            digest = hashlib.md5(str(st.st_size).encode("ascii"))
+            chunk = 1024 * 1024
+            with open(file_path, "rb") as f:
+                digest.update(f.read(chunk))
+                if st.st_size > chunk * 2:
+                    f.seek(-chunk, os.SEEK_END)
+                    digest.update(f.read(chunk))
+            return digest.hexdigest()[:16]
+        except OSError:
+            return None
+
+    def _generated_skp_preview(self, file_path):
+        """Return a previously generated geometry preview, if it still matches."""
+        key = self._skp_cache_key(file_path)
+        if not key:
+            return None
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "assets", "thumbnails", f"skp_gen_{key}.png"
+        )
+        return path if self._nonempty_file(path) else None
+
+    def _get_skp_preview(self, file_path):
+        """Prefer the .skp's own embedded preview, then a generated one."""
+        return self._extract_skp_thumbnail(file_path) or self._generated_skp_preview(file_path)
+
+    def _generate_skp_preview(self, file_path):
+        """Ask the connected SketchUp bridge to render a real preview image.
+
+        Many older .skp files only store the generic SketchUp logo in
+        doc_thumbnail.png. Loading the definition inside a temporary undo
+        operation lets SketchUp render the actual geometry without leaving
+        anything behind in the user's active model.
+        """
+        if os.path.splitext(file_path)[1].lower() != ".skp":
+            return None
+        existing = self._generated_skp_preview(file_path)
+        if existing:
+            return existing
+
+        key = self._skp_cache_key(file_path)
+        if not key:
+            return None
+        thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "thumbnails")
+        os.makedirs(thumb_dir, exist_ok=True)
+        final_path = os.path.join(thumb_dir, f"skp_gen_{key}.png")
+        temp_path = os.path.join(thumb_dir, f"skp_gen_{key}.tmp.png")
+
+        ruby_file = os.path.abspath(file_path).replace("\\", "/").replace("'", "\\'")
+        ruby_out = temp_path.replace("\\", "/").replace("'", "\\'")
+        code = f"""
+m = Sketchup.active_model
+if m
+  begin
+    m.start_operation('Generate SKP Preview', true)
+    d = m.definitions.load('{ruby_file}')
+    b = d.bounds
+    c = b.center
+    diag = b.diagonal.to_f
+    diag = 1.0 if diag <= 0
+    v = Geom::Vector3d.new(diag, -diag, diag)
+    d.thumbnail_camera = Sketchup::Camera.new(c + v, c, Geom::Vector3d.new(0, 0, 1))
+    d.refresh_thumbnail
+    d.save_thumbnail('{ruby_out}')
+    ok = File.exist?('{ruby_out}') && File.size('{ruby_out}') > 1000
+    {{ status: ok ? 'success' : 'failed' }}
+  rescue => e
+    {{ status: 'error', message: e.message }}
+  ensure
+    m.abort_operation rescue nil
+    GC.start rescue nil
+  end
+else
+  {{ status: 'error', message: 'No active model' }}
+end
+"""
+        try:
+            with httpx.Client(timeout=600.0) as client:
+                res = client.post(f"{BRIDGE_URL}/api/eval", json={"code": code})
+                if res.status_code != 200:
+                    return None
+                data = res.json()
+        except Exception:
+            return None
+
+        if data.get("status") != "success" or not self._nonempty_file(temp_path):
+            return None
+        if os.path.getsize(temp_path) <= 1000:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+            return None
+        try:
+            os.replace(temp_path, final_path)
+        except OSError:
+            return None
+        return final_path if self._nonempty_file(final_path) else None
+
+    def _queue_missing_previews(self, assets):
+        """Queue real .skp previews for models that have no embedded image."""
+        if not self._connected:
+            return
+
+        for asset in assets:
+            if asset.get("ext") != "SKP" or asset.get("thumbnail"):
+                continue
+            path = asset.get("path")
+            if not path or not os.path.isfile(path):
+                continue
+            try:
+                if os.path.getsize(path) > MAX_AUTO_PREVIEW_BYTES:
+                    continue
+            except OSError:
+                continue
+            key = self._skp_cache_key(path)
+            if not key:
+                continue
+            with self._preview_lock:
+                if path in self._preview_pending or key in self._preview_failed:
+                    continue
+                self._preview_pending.add(path)
+
+        with self._preview_lock:
+            # Also covers the race where the worker just stopped while a
+            # new path was being added to the pending set.
+            if self._preview_worker_running or not self._preview_pending:
+                return
+            self._preview_worker_running = True
+        threading.Thread(target=self._preview_worker, daemon=True).start()
+
+    def _preview_worker(self):
+        try:
+            while True:
+                with self._preview_lock:
+                    pending = list(self._preview_pending)
+                if not pending:
+                    break
+                for path in pending:
+                    key = self._skp_cache_key(path)
+                    try:
+                        generated = self._generate_skp_preview(path)
+                    except Exception:
+                        generated = None
+                    with self._preview_lock:
+                        self._preview_pending.discard(path)
+                        if not generated and key:
+                            # Do not hammer SketchUp with a file that failed.
+                            self._preview_failed.add(key)
+                    if generated:
+                        self._library_cache = None
+                        self.libraryReloaded.emit()
+        finally:
+            with self._preview_lock:
+                self._preview_worker_running = False
+
+    def _compute_library_signature(self):
+        models_dir = self.get_models_dir()
+        if not os.path.exists(models_dir):
+            return ""
+        entries = []
+        for root_dir, dirs, files in os.walk(models_dir):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            try:
+                st = os.stat(root_dir)
+                entries.append(f"D|{os.path.relpath(root_dir, models_dir)}|{st.st_mtime_ns}")
+            except OSError:
+                pass
+            for f in sorted(files):
+                ext = os.path.splitext(f)[1].lower()
+                if ext in EXTS_3D or ext in IMG_EXTS or f.lower() == "meta.json":
+                    try:
+                        full = os.path.join(root_dir, f)
+                        st = os.stat(full)
+                        entries.append(f"F|{os.path.relpath(full, models_dir)}|{st.st_mtime_ns}|{st.st_size}")
+                    except OSError:
+                        pass
+        return "|".join(entries)
+
+    def _get_library_assets(self):
+        signature = self._compute_library_signature()
+        if self._library_cache is None or signature != self._library_signature:
+            self._library_cache = self._scan_library()
+            self._library_signature = signature
+        return self._library_cache
+
+    @Slot()
+    def check_library_changes(self):
+        signature = self._compute_library_signature()
+        if self._library_signature is None:
+            self._library_signature = signature
+            return
+        if signature != self._library_signature:
+            # Force the next QML loadAssets() to rebuild from disk.
+            self._library_cache = None
+            self.libraryReloaded.emit()
+
+        # Fill in previews for .skp files that only contain the generic
+        # SketchUp logo. This runs in the background and refreshes as each
+        # real preview becomes available.
+        try:
+            self._queue_missing_previews(self._get_library_assets())
+        except Exception:
+            pass
+
+    def _scan_library(self):
+        models_dir = self.get_models_dir()
+        if not os.path.exists(models_dir):
+            return []
+
+        assets = []
+        seen_models = set()
+
+        # Every real 3D file becomes an insertable asset.
+        for root_dir, dirs, files in os.walk(models_dir):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            for f in sorted(files):
+                if os.path.splitext(f)[1].lower() not in EXTS_3D:
+                    continue
+                full_path = os.path.abspath(os.path.join(root_dir, f))
+                real_path = os.path.realpath(full_path)
+                if real_path in seen_models:
+                    continue
+                seen_models.add(real_path)
+
+                unit_dir, meta = self._resolve_unit_dir(root_dir, models_dir, f)
+                rel_unit = os.path.relpath(unit_dir, models_dir)
+                parts = [] if rel_unit == "." else rel_unit.split(os.sep)
+                cat_folder = parts[0] if parts else "General"
+                cat_id = cat_folder.lower().replace(" ", "_")
+                cat_name = (
+                    meta.get("subcategory")
+                    or meta.get("category")
+                    or cat_folder.replace("_", " ").title()
+                )
+
+                display_name = meta.get("title")
+                if not display_name and os.path.abspath(unit_dir) != os.path.abspath(root_dir):
+                    display_name = self._friendly_name(os.path.basename(unit_dir))
+
+                ext = os.path.splitext(full_path)[1].lower()
+                if ext == ".skp":
+                    # The card and modal must use the .skp's own preview,
+                    # never image_1.jpg / article artwork.
+                    cover = self._get_skp_preview(full_path)
+                else:
+                    cover = self._find_cover_image(unit_dir, full_path, models_dir)
+
+                assets.append(self._process_3d_file(
+                    full_path,
+                    cat=cat_id,
+                    cat_name=cat_name,
+                    override_thumb=cover,
+                    display_name=display_name,
+                    unit_dir=unit_dir,
+                    meta=meta
+                ))
+
+        assets.sort(key=lambda a: (a.get("category_name", "").lower(), a.get("name", "").lower()))
+        return assets
+
     @Slot(result=str)
     def getLibraryCategories(self):
-        """
-        Dynamically scans /models/ directory and discovers category folders.
-        Returns a JSON list of categories with counts and icon keys.
-        """
-        models_dir = self.get_models_dir()
-        exts_3d = (".skp", ".obj", ".dae", ".stl", ".3ds", ".dwg", ".dxf", ".ifc")
+        """Discover categories and counts from the actual library scanner."""
+        assets = self._get_library_assets()
+        counts = {}
+        names = {}
+        for asset in assets:
+            cid = asset.get("category") or "general"
+            counts[cid] = counts.get(cid, 0) + 1
+            names.setdefault(cid, set()).add(asset.get("category_name") or cid.replace("_", " ").title())
 
-        # Discover top-level directories under models/
-        subdirs = []
-        if os.path.exists(models_dir):
-            for entry in sorted(os.listdir(models_dir)):
-                full_sub = os.path.join(models_dir, entry)
-                if os.path.isdir(full_sub) and not entry.startswith("."):
-                    subdirs.append(entry)
+        categories = [{
+            "id": "all",
+            "name": "All 3D Models",
+            "count": len(assets),
+            "iconKey": "cubes"
+        }]
 
-        # Count models per category
-        cat_counts = {d.lower().replace(" ", "_"): 0 for d in subdirs}
-        cat_names_map = {d.lower().replace(" ", "_"): d.replace("_", " ").title() for d in subdirs}
-        total_models = 0
-
-        if os.path.exists(models_dir):
-            for root_dir, _, files in os.walk(models_dir):
-                for f in files:
-                    ext = os.path.splitext(f)[1].lower()
-                    if ext in exts_3d:
-                        total_models += 1
-                        rel = os.path.relpath(os.path.join(root_dir, f), models_dir)
-                        parts = rel.split(os.sep)
-                        if len(parts) > 1:
-                            cid = parts[0].lower().replace(" ", "_")
-                            cat_counts[cid] = cat_counts.get(cid, 0) + 1
-                            if cid not in cat_names_map:
-                                cat_names_map[cid] = parts[0].replace("_", " ").title()
-                        else:
-                            cat_counts["general"] = cat_counts.get("general", 0) + 1
-                            cat_names_map["general"] = "General"
-
-        categories = [
-            {
-                "id": "all",
-                "name": "All 3D Models",
-                "count": total_models,
-                "iconKey": "cubes"
-            }
-        ]
-
-        for cid, display_name in sorted(cat_names_map.items(), key=lambda x: x[1]):
+        for cid in sorted(counts, key=lambda c: sorted(names.get(c, {c}))[0].lower()):
+            label_set = {n for n in names.get(cid, set()) if n}
+            display_name = sorted(label_set)[0] if len(label_set) == 1 else cid.replace("_", " ").title()
             categories.append({
                 "id": cid,
                 "name": display_name,
-                "count": cat_counts.get(cid, 0),
+                "count": counts[cid],
                 "iconKey": self._get_category_icon_key(display_name)
             })
 
@@ -361,74 +848,20 @@ class Backend(QObject):
 
     @Slot(result=str)
     def getLibraryAssets(self):
-        """
-        Recursively scans /models/<category>/** for 3D files and matching preview images.
-        """
-        assets = []
-        seen_paths = set()
-        seen_names = set()
+        """Return the cached library scan, refreshed when /models/ changes."""
+        return json.dumps(self._get_library_assets())
 
-        models_dir = self.get_models_dir()
-        if not os.path.exists(models_dir):
-            return json.dumps([])
+    def _default_params(self):
+        return [
+            {"key": "scale", "name": "Uniform Scale", "val": 1.0, "min": 0.1, "max": 5.0, "step": 0.05, "unit": "x"},
+            {"key": "rot_z", "name": "Rotation (Yaw)", "val": 0, "min": 0, "max": 360, "step": 15, "unit": "deg"},
+            {"key": "pos_x", "name": "Position X", "val": 0.0, "min": -25.0, "max": 25.0, "step": 0.25, "unit": "m"},
+            {"key": "pos_y", "name": "Position Y", "val": 0.0, "min": -25.0, "max": 25.0, "step": 0.25, "unit": "m"},
+            {"key": "pos_z", "name": "Elevation Z", "val": 0.0, "min": 0.0, "max": 25.0, "step": 0.10, "unit": "m"},
+        ]
 
-        exts_3d = (".skp", ".obj", ".dae", ".stl", ".3ds", ".dwg", ".dxf", ".ifc")
-        img_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
-
-        for root_dir, _, files in os.walk(models_dir):
-            for f in sorted(files):
-                ext = os.path.splitext(f)[1].lower()
-                if ext in exts_3d:
-                    full_path = os.path.abspath(os.path.join(root_dir, f))
-                    real_p = os.path.realpath(full_path)
-                    if real_p in seen_paths or f in seen_names:
-                        continue
-                    seen_paths.add(real_p)
-                    seen_names.add(f)
-
-                    # Dynamic category from top-level folder inside models/
-                    rel = os.path.relpath(full_path, models_dir)
-                    parts = rel.split(os.sep)
-                    if len(parts) > 1:
-                        cat_folder = parts[0]
-                    else:
-                        cat_folder = "General"
-
-                    cat_id = cat_folder.lower().replace(" ", "_")
-                    cat_name = cat_folder.replace("_", " ").title()
-
-                    # Dynamic search for matching companion image in the same directory
-                    base_name = os.path.splitext(f)[0]
-                    matched_img = None
-                    for iext in img_exts:
-                        cand = os.path.join(root_dir, base_name + iext)
-                        if os.path.exists(cand) and os.path.getsize(cand) > 0:
-                            matched_img = os.path.abspath(cand)
-                            break
-                        cand_upper = os.path.join(root_dir, base_name + iext.upper())
-                        if os.path.exists(cand_upper) and os.path.getsize(cand_upper) > 0:
-                            matched_img = os.path.abspath(cand_upper)
-                            break
-                        cand_preview = os.path.join(root_dir, f"{base_name}_preview{iext}")
-                        if os.path.exists(cand_preview) and os.path.getsize(cand_preview) > 0:
-                            matched_img = os.path.abspath(cand_preview)
-                            break
-                        cand_skp = os.path.join(root_dir, f"{f}{iext}")
-                        if os.path.exists(cand_skp) and os.path.getsize(cand_skp) > 0:
-                            matched_img = os.path.abspath(cand_skp)
-                            break
-
-                    assets.append(self._process_3d_file(
-                        full_path,
-                        cat=cat_id,
-                        cat_name=cat_name,
-                        override_thumb=matched_img
-                    ))
-
-        return json.dumps(assets)
-
-    def _process_3d_file(self, file_path, cat=None, cat_name=None, override_thumb=None):
-        import zipfile
+    def _process_3d_file(self, file_path, cat=None, cat_name=None, override_thumb=None,
+                         display_name=None, unit_dir=None, meta=None):
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         ext = os.path.splitext(file_path)[1].lower()
         size_bytes = os.path.getsize(file_path) if os.path.exists(file_path) else 0
@@ -439,43 +872,29 @@ class Backend(QObject):
 
         thumb_path = override_thumb
         if not thumb_path or not os.path.exists(thumb_path):
-            thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "thumbnails")
-            os.makedirs(thumb_dir, exist_ok=True)
-            cached_thumb = os.path.join(thumb_dir, f"{base_name}.png")
-            if ext == ".skp" and not (os.path.exists(cached_thumb) and os.path.getsize(cached_thumb) > 0):
-                try:
-                    with zipfile.ZipFile(file_path, "r") as z:
-                        for n in z.namelist():
-                            if "thumbnail" in n.lower() and n.endswith(".png"):
-                                with open(cached_thumb, "wb") as f_out:
-                                    f_out.write(z.read(n))
-                                break
-                except Exception:
-                    pass
-            if os.path.exists(cached_thumb) and os.path.getsize(cached_thumb) > 0:
-                thumb_path = cached_thumb
+            thumb_path = self._get_skp_preview(file_path) if ext == ".skp" else None
 
         has_thumb = thumb_path and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0
-        friendly_title = base_name.replace("_", " ").replace("-", " ").title()
+        friendly_title = display_name or self._friendly_name(base_name)
+        meta = meta or {}
+        folder = os.path.abspath(unit_dir or os.path.dirname(file_path))
+        asset_id = "comp_" + hashlib.md5(os.path.abspath(file_path).encode("utf-8")).hexdigest()[:12]
 
         return {
-            "id": f"comp_{base_name}",
+            "id": asset_id,
             "name": friendly_title,
             "filename": os.path.basename(file_path),
             "path": os.path.abspath(file_path),
+            "folder": folder,
             "ext": ext.replace(".", "").upper(),
             "size": size_str,
             "category": cat or "imported",
-            "category_name": cat_name or (cat.title() if cat else "Imported"),
-            "desc": f"Native {ext.upper()} model in /models/{cat_name or ''} ready to inspect and insert.",
+            "category_name": cat_name or (meta.get("subcategory") or meta.get("category") or (cat.title() if cat else "Imported")),
+            "desc": f"Native {ext.upper()} model ready to inspect and insert.",
             "thumbnail": os.path.abspath(thumb_path) if has_thumb else "",
-            "params": [
-                {"key": "scale", "name": "Uniform Scale", "val": 1.0, "min": 0.1, "max": 5.0, "step": 0.05, "unit": "x"},
-                {"key": "rot_z", "name": "Rotation (Yaw)", "val": 0, "min": 0, "max": 360, "step": 15, "unit": "deg"},
-                {"key": "pos_x", "name": "Position X", "val": 0.0, "min": -25.0, "max": 25.0, "step": 0.25, "unit": "m"},
-                {"key": "pos_y", "name": "Position Y", "val": 0.0, "min": -25.0, "max": 25.0, "step": 0.25, "unit": "m"},
-                {"key": "pos_z", "name": "Elevation Z", "val": 0.0, "min": 0.0, "max": 25.0, "step": 0.10, "unit": "m"},
-            ]
+            "thumbnail_url": to_file_url(thumb_path) if has_thumb else "",
+            "has_model": True,
+            "params": self._default_params(),
         }
 
     @Slot()
